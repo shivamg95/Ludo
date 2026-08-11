@@ -1,0 +1,125 @@
+@import 'tailwindcss';
+@import './a11y.css';
+
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('https://cdn.jsdelivr.net/fontsource/fonts/sora@latest/latin-400-normal.woff2')
+    format('woff2');
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url('https://cdn.jsdelivr.net/fontsource/fonts/fraunces@latest/latin-700-normal.woff2')
+    format('woff2');
+}
+
+:root {
+  --bg0: #0c1017;
+  --bg1: #141b26;
+  --bg2: #1c2636;
+  --ink: #e8eef7;
+  --muted: #8b9bb3;
+  --line: rgba(255, 255, 255, 0.08);
+  --glass: rgba(20, 28, 40, 0.72);
+  --red: #e23d3d;
+  --green: #2f9e5c;
+  --yellow: #e2b93d;
+  --blue: #3d7ee2;
+  --accent: #5ec2a0;
+  --danger: #ff6b6b;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Sora', system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --bg0: #eef2f7;
+  --bg1: #f7f9fc;
+  --bg2: #ffffff;
+  --ink: #152033;
+  --muted: #5a6b82;
+  --line: rgba(15, 30, 50, 0.1);
+  --glass: rgba(255, 255, 255, 0.78);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(94, 194, 160, 0.12), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(61, 126, 226, 0.12), transparent 50%),
+    linear-gradient(165deg, var(--bg0), var(--bg1) 45%, var(--bg0));
+  color: var(--ink);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  z-index: 50;
+}
+
+button,
+[role='button'] {
+  min-height: 44px;
+  min-width: 44px;
+  font: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--line);
+}
+
+.seat-red {
+  --seat: var(--red);
+}
+.seat-green {
+  --seat: var(--green);
+}
+.seat-yellow {
+  --seat: var(--yellow);
+}
+.seat-blue {
+  --seat: var(--blue);
+}

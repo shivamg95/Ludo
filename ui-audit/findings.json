@@ -1,0 +1,112 @@
+[
+  {
+    "severity": "info",
+    "area": "typography",
+    "msg": "{\"family\":\"Fraunces, Georgia, serif\",\"size\":\"60px\",\"weight\":\"700\"}"
+  },
+  {
+    "severity": "info",
+    "area": "setup-modes",
+    "msg": "[{\"id\":\"mode-classic\",\"hasImg\":false,\"artBg\":\"linear-gradient(135deg, rgb(226, 61, 61), rgb(226, 185, 61))\"},{\"id\":\"mode-timed\",\"hasImg\":false,\"artBg\":\"linear-gradient(135deg, rgb(61, 126, 226), rgb(94, 194, 160))\"},{\"id\":\"mode-quick\",\"hasImg\":false,\"artBg\":\"linear-gradient(135deg, rgb(47, 158, 92), rgb(226, 185, 61))\"}]"
+  },
+  {
+    "severity": "gap",
+    "area": "setup",
+    "msg": "mode cards use flat gradient rectangles — no animated illustrations"
+  },
+  {
+    "severity": "info",
+    "area": "layout",
+    "msg": "{\"board\":{\"w\":868,\"h\":876},\"hud\":{\"w\":288,\"h\":876,\"right\":1428},\"cells\":[{\"fill\":\"#d9e0ea\",\"stroke\":\"rgba(0,0,0,0.18)\"},{\"fill\":\"#d9e0ea\",\"stroke\":\"rgba(0,0,0,0.18)\"},{\"fill\":\"#d9e0ea\",\"stroke\":\"rgba(0,0,0,0.18)\"},{\"fill\":\"#d9e0ea\",\"stroke\":\"rgba(0,0,0,0.18)\"},{\"fill\":\"#d9e0ea\",\"stroke\":\"rgba(0,0,0,0.18)\"}],\"pawns\":[{\"id\":\"pawn-red-0\",\"w\":39,\"h\":39},{\"id\":\"pawn-red-1\",\"w\":39,\"h\":39},{\"id\":\"pawn-red-2\",\"w\":39,\"h\":39},{\"id\":\"pawn-red-3\",\"w\":39,\"h\":39}],\"minPawn\":39,\"viewportW\":1440}"
+  },
+  {
+    "severity": "glitch",
+    "area": "board",
+    "msg": "board not square: 868x876"
+  },
+  {
+    "severity": "glitch",
+    "area": "touch",
+    "msg": "pawn hit size ~39px (<44px target)"
+  },
+  {
+    "severity": "gap",
+    "area": "board",
+    "msg": "cells are flat #d9e0ea/#f4f7fb fills with hard stroke — no soft inset, wood/felt texture, or depth"
+  },
+  {
+    "severity": "gap",
+    "area": "pawns",
+    "msg": "pawns are flat filled circles — no 3D token, gloss, shadow, or seat emblem"
+  },
+  {
+    "severity": "gap",
+    "area": "dice",
+    "msg": "Dice component always receives rolling={false} from HUD — no roll animation"
+  },
+  {
+    "severity": "gap",
+    "area": "motion",
+    "msg": "pawn moves use single spring to end cell — not hop-along-path waypoints"
+  },
+  {
+    "severity": "gap",
+    "area": "feedback",
+    "msg": "no destination preview / path highlight before selecting a pawn"
+  },
+  {
+    "severity": "gap",
+    "area": "sfx",
+    "msg": "move-log shows raw event types (rolled/moved) — not human-readable premium copy"
+  },
+  {
+    "severity": "info",
+    "area": "hud",
+    "msg": "active player cards: 1"
+  },
+  {
+    "severity": "info",
+    "area": "quick",
+    "msg": "locks=4 cut-badges=4"
+  },
+  {
+    "severity": "info",
+    "area": "timed",
+    "msg": "clock shows \"3:00\""
+  },
+  {
+    "severity": "info",
+    "area": "results",
+    "msg": "did not reach results; screen=game"
+  },
+  {
+    "severity": "glitch",
+    "area": "setup-mobile",
+    "msg": "overflow: [{\"testid\":\"human-dec\",\"overflow\":\"bottom\",\"bottom\":883,\"docH\":839},{\"testid\":\"human-count\",\"overflow\":\"bottom\",\"bottom\":875,\"docH\":839},{\"testid\":\"human-inc\",\"overflow\":\"bottom\",\"bottom\":883,\"docH\":839},{\"testid\":\"bot-count\",\"overflow\":\"bottom\",\"bottom\":911,\"docH\":839},{\"testid\":\"name-red\",\"overflow\":\"bottom\",\"bottom\":969,\"docH\":839},{\"testid\":\"name-yellow\",\"overflow\":\"bottom\",\"bottom\":1019,\"docH\":839},{\"testid\":\"start-game\",\"overflow\":\"bottom\",\"bottom\":1091,\"docH\":839}]"
+  },
+  {
+    "severity": "info",
+    "area": "setup-mobile-scroll",
+    "msg": "{\"bodyOverflow\":\"hidden\",\"screenScrollH\":1136,\"screenClientH\":839,\"canScroll\":true,\"startBtnBottom\":1091,\"vh\":839}"
+  },
+  {
+    "severity": "info",
+    "area": "mobile-layout",
+    "msg": "{\"board\":{\"top\":12,\"bottom\":400,\"h\":388,\"w\":388},\"hud\":{\"top\":412,\"bottom\":758,\"h\":346},\"diceInView\":true,\"boardInView\":true,\"hudClipped\":false,\"vh\":839,\"vw\":412,\"gapBoardHud\":12}"
+  },
+  {
+    "severity": "glitch",
+    "area": "game-mobile-landscape",
+    "msg": "overflow: [{\"testid\":\"hud\",\"overflow\":\"bottom\",\"bottom\":572,\"docH\":390},{\"testid\":\"turn-label\",\"overflow\":\"bottom\",\"bottom\":411,\"docH\":390},{\"testid\":\"dice-button\",\"overflow\":\"bottom\",\"bottom\":523,\"docH\":390},{\"testid\":\"dice-face\",\"overflow\":\"bottom\",\"bottom\":499,\"docH\":390},{\"testid\":\"move-log\",\"overflow\":\"bottom\",\"bottom\":559,\"docH\":390}]"
+  },
+  {
+    "severity": "info",
+    "area": "landscape",
+    "msg": "{\"board\":{\"w\":198,\"h\":198,\"bottom\":210},\"hud\":{\"w\":820,\"h\":350,\"top\":222},\"vh\":390,\"boardClipped\":false,\"usesRowLayout\":false}"
+  },
+  {
+    "severity": "gap",
+    "area": "landscape",
+    "msg": "portrait column layout persists in short landscape — board + HUD fight for height"
+  }
+]
