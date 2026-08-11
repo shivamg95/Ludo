@@ -1,4 +1,6 @@
 import type { GameState } from '../engine/types';
+import { SEATS } from '../engine/board';
+import { formatEvent } from '../engine/selectors';
 import { Dice } from './Dice';
 
 function formatMs(ms: number | null): string {
@@ -15,28 +17,42 @@ interface Props {
   onMuteToggle: () => void;
   muted: boolean;
   onQuit: () => void;
+  rolling?: boolean;
 }
 
-export function HUD({ game, onRoll, onMuteToggle, muted, onQuit }: Props) {
+export function HUD({ game, onRoll, onMuteToggle, muted, onQuit, rolling = false }: Props) {
   const currentSeat = game.config.seats[game.currentSeatIndex]!;
-  const canRoll = game.phase === 'waiting_roll' && !game.hardStopped;
+  const canRoll = game.phase === 'waiting_roll' && !game.hardStopped && !rolling;
   const current = game.players.find((p) => p.seat === currentSeat)!;
 
   return (
     <aside
-      className="glass flex w-full flex-col gap-3 rounded-2xl p-3 sm:p-4 lg:w-72"
+      className="glass hud-panel flex w-full flex-col gap-3 rounded-2xl p-3 sm:p-4 lg:w-72 lg:shrink-0"
       data-testid="hud"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
+        <p
+          className="text-sm font-semibold uppercase tracking-wider"
+          style={{ color: 'var(--muted)' }}
+        >
           {game.config.mode}
         </p>
         <div className="flex gap-1">
-          <button type="button" className="glass rounded-lg px-2 text-xs" onClick={onMuteToggle} data-testid="hud-mute">
+          <button
+            type="button"
+            className="glass rounded-lg px-2 text-xs"
+            onClick={onMuteToggle}
+            data-testid="hud-mute"
+          >
             {muted ? 'Muted' : 'SFX'}
           </button>
-          <button type="button" className="glass rounded-lg px-2 text-xs" onClick={onQuit} data-testid="quit-game">
+          <button
+            type="button"
+            className="glass rounded-lg px-2 text-xs"
+            onClick={onQuit}
+            data-testid="quit-game"
+          >
             Quit
           </button>
         </div>
@@ -68,20 +84,26 @@ export function HUD({ game, onRoll, onMuteToggle, muted, onQuit }: Props) {
           return (
             <div
               key={p.seat}
-              className={`relative overflow-hidden rounded-xl px-3 py-2 seat-${p.color}`}
+              className={`player-card relative overflow-hidden rounded-xl px-3 py-2 seat-${p.color}`}
               style={{
                 background: active
-                  ? `linear-gradient(90deg, color-mix(in oklab, var(--seat) 35%, transparent), transparent)`
+                  ? `linear-gradient(90deg, color-mix(in oklab, var(--seat) 40%, transparent), transparent)`
                   : 'rgba(255,255,255,0.03)',
-                boxShadow: active ? `0 0 0 1px var(--seat), 0 0 18px color-mix(in oklab, var(--seat) 40%, transparent)` : undefined,
+                boxShadow: active
+                  ? `0 0 0 1.5px var(--seat), 0 0 22px color-mix(in oklab, var(--seat) 45%, transparent)`
+                  : undefined,
               }}
               data-testid={`player-card-${p.color}`}
               data-active={active ? 'true' : 'false'}
             >
+              {active && <span className="active-glow" aria-hidden />}
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full" style={{ background: `var(--${p.color})` }} />
-                  <span className="text-sm font-semibold">{p.name}</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{ background: `var(--${p.color})` }}
+                  />
+                  <span className="truncate text-sm font-semibold">{p.name}</span>
                   {p.isBot && (
                     <span className="text-[10px] uppercase" style={{ color: 'var(--muted)' }}>
                       bot
@@ -117,31 +139,41 @@ export function HUD({ game, onRoll, onMuteToggle, muted, onQuit }: Props) {
         })}
       </div>
 
-      <div className="mt-auto flex flex-col items-center gap-2 py-2">
+      <div className="hud-dice mt-auto flex flex-col items-center gap-2 py-2">
         <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="turn-label">
-          {current.isBot ? `${current.name} thinking…` : `${current.name}'s turn`}
+          {rolling
+            ? `${current.name} rolling…`
+            : current.isBot
+              ? `${current.name} thinking…`
+              : `${current.name}'s turn`}
         </p>
         <Dice
           value={game.diceValue}
           disabled={!canRoll || current.isBot}
           onRoll={onRoll}
-          rolling={false}
+          rolling={rolling}
         />
       </div>
 
-      <div className="max-h-28 overflow-y-auto rounded-xl p-2 text-xs" style={{ background: 'rgba(0,0,0,0.2)' }} data-testid="move-log">
+      <div
+        className="hud-log max-h-28 overflow-y-auto rounded-xl p-2 text-xs"
+        style={{ background: 'rgba(0,0,0,0.2)' }}
+        data-testid="move-log"
+      >
         {game.events
           .slice(-12)
           .reverse()
-          .map((e, i) => (
-            <div key={`${e.atCursor}-${i}`} style={{ color: 'var(--muted)' }}>
-              {e.type}
-              {e.detail?.value != null ? ` ${e.detail.value}` : ''}
-              {Array.isArray(e.detail?.captures) && (e.detail.captures as string[]).length
-                ? ' (capture)'
-                : ''}
-            </div>
-          ))}
+          .map((e, i) => {
+            const name =
+              game.players.find((p) => p.seat === e.seat)?.name ??
+              SEATS[e.seat]?.color ??
+              'Player';
+            return (
+              <div key={`${e.atCursor}-${i}`} style={{ color: 'var(--ink)', opacity: 0.75 }}>
+                {formatEvent(e.type, e.detail, name)}
+              </div>
+            );
+          })}
       </div>
     </aside>
   );

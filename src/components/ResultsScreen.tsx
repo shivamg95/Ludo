@@ -1,10 +1,25 @@
+import { useMemo } from 'react';
 import { useAppStore } from '../store/gameStore';
 import { SEATS } from '../engine/board';
+
+const CONFETTI_COLORS = ['#e23d3d', '#2f9e5c', '#e2b93d', '#3d7ee2', '#5ec2a0', '#f5e6a8'];
 
 export function ResultsScreen() {
   const game = useAppStore((s) => s.game);
   const goSetup = useAppStore((s) => s.goSetup);
   const startGame = useAppStore((s) => s.startGame);
+
+  const confetti = useMemo(
+    () =>
+      Array.from({ length: 24 }, (_, i) => ({
+        id: i,
+        left: `${(i * 37) % 100}%`,
+        delay: `${(i % 8) * 0.12}s`,
+        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length]!,
+        rot: (i * 47) % 360,
+      })),
+    [],
+  );
 
   if (!game) {
     return (
@@ -16,16 +31,30 @@ export function ResultsScreen() {
     );
   }
 
-  const ranked = game.rankings.length
-    ? game.rankings
-    : game.config.seats;
+  const ranked = game.rankings.length ? game.rankings : game.config.seats;
+  const winner = game.players.find((p) => p.seat === ranked[0]);
 
   return (
     <div
-      className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-y-auto px-4 py-8"
+      className="relative mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-y-auto px-4 py-8"
       data-testid="results-screen"
       style={{ paddingTop: 'max(2rem, env(safe-area-inset-top))' }}
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 overflow-hidden" aria-hidden>
+        {confetti.map((c) => (
+          <span
+            key={c.id}
+            className="confetti-piece"
+            style={{
+              left: c.left,
+              background: c.color,
+              animationDelay: c.delay,
+              transform: `rotate(${c.rot}deg)`,
+            }}
+          />
+        ))}
+      </div>
+
       <header>
         <p
           className="text-4xl font-bold"
@@ -36,6 +65,7 @@ export function ResultsScreen() {
         </p>
         <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
           {game.config.mode} mode
+          {winner ? ` · ${winner.name} takes the crown` : ''}
         </p>
       </header>
 
@@ -45,18 +75,31 @@ export function ResultsScreen() {
           return (
             <li
               key={seat}
-              className="glass flex items-center justify-between rounded-2xl px-4 py-3"
+              className={`glass flex items-center justify-between rounded-2xl px-4 py-3 ${i === 0 ? 'podium-1' : ''}`}
               data-testid={`rank-${i + 1}`}
             >
               <div className="flex items-center gap-3">
-                <span className="text-2xl font-bold tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>
-                  {i + 1}
+                <span
+                  className="text-2xl font-bold tabular-nums"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    color: i === 0 ? 'var(--accent)' : undefined,
+                  }}
+                >
+                  {i === 0 ? '👑' : i + 1}
                 </span>
-                <span className="h-4 w-4 rounded-full" style={{ background: `var(--${p.color})` }} />
+                <span
+                  className="h-4 w-4 rounded-full"
+                  style={{
+                    background: `radial-gradient(circle at 30% 30%, #fff, var(--${p.color}))`,
+                  }}
+                />
                 <span className="font-semibold">{p.name}</span>
               </div>
               <div className="text-right text-sm" style={{ color: 'var(--muted)' }}>
-                {game.config.mode === 'timed' && <div data-testid={`final-score-${p.color}`}>{p.score} pts</div>}
+                {game.config.mode === 'timed' && (
+                  <div data-testid={`final-score-${p.color}`}>{p.score} pts</div>
+                )}
                 <div>
                   {p.captures} cuts · {p.distanceTravelled} steps · {p.sixesRolled} sixes
                 </div>
@@ -67,12 +110,19 @@ export function ResultsScreen() {
       </ol>
 
       <section className="glass rounded-2xl p-4" data-testid="stats-breakdown">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
+        <h2
+          className="mb-3 text-sm font-semibold uppercase tracking-wider"
+          style={{ color: 'var(--muted)' }}
+        >
           Stats
         </h2>
         <div className="grid gap-2 sm:grid-cols-2">
           {game.players.map((p) => (
-            <div key={p.seat} className="rounded-xl px-3 py-2" style={{ background: 'rgba(0,0,0,0.15)' }}>
+            <div
+              key={p.seat}
+              className="rounded-xl px-3 py-2"
+              style={{ background: 'rgba(0,0,0,0.15)' }}
+            >
               <p className="font-semibold capitalize">{SEATS[p.seat]!.color}</p>
               <p className="text-xs" style={{ color: 'var(--muted)' }}>
                 Home: {p.pawns.filter((x) => x.progress === 56).length}/4 · Laps:{' '}
@@ -93,7 +143,12 @@ export function ResultsScreen() {
         >
           Play again
         </button>
-        <button type="button" className="glass flex-1 rounded-2xl py-3 font-semibold" onClick={goSetup} data-testid="back-setup">
+        <button
+          type="button"
+          className="glass flex-1 rounded-2xl py-3 font-semibold"
+          onClick={goSetup}
+          data-testid="back-setup"
+        >
           Setup
         </button>
       </div>

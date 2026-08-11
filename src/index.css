@@ -27,6 +27,7 @@
   --muted: #8b9bb3;
   --line: rgba(255, 255, 255, 0.08);
   --glass: rgba(20, 28, 40, 0.72);
+  --glass-strong: rgba(16, 22, 32, 0.88);
   --red: #e23d3d;
   --green: #2f9e5c;
   --yellow: #e2b93d;
@@ -35,17 +36,19 @@
   --danger: #ff6b6b;
   --font-display: 'Fraunces', Georgia, serif;
   --font-body: 'Sora', system-ui, sans-serif;
+  --hud-reserve: 12rem;
   color-scheme: dark;
 }
 
 [data-theme='light'] {
-  --bg0: #eef2f7;
-  --bg1: #f7f9fc;
+  --bg0: #e8eef6;
+  --bg1: #f4f7fb;
   --bg2: #ffffff;
   --ink: #152033;
   --muted: #5a6b82;
   --line: rgba(15, 30, 50, 0.1);
-  --glass: rgba(255, 255, 255, 0.78);
+  --glass: rgba(255, 255, 255, 0.82);
+  --glass-strong: rgba(255, 255, 255, 0.94);
   color-scheme: light;
 }
 
@@ -63,7 +66,7 @@ body,
 body {
   font-family: var(--font-body);
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(94, 194, 160, 0.12), transparent 55%),
+    radial-gradient(1200px 600px at 10% -10%, rgba(94, 194, 160, 0.14), transparent 55%),
     radial-gradient(900px 500px at 100% 0%, rgba(61, 126, 226, 0.12), transparent 50%),
     linear-gradient(165deg, var(--bg0), var(--bg1) 45%, var(--bg0));
   color: var(--ink);
@@ -95,6 +98,14 @@ button,
   outline-offset: 3px;
 }
 
+/* SVG pawn hit-targets: browser focus outlines scale with the SVG and become huge */
+circle[data-testid^='pawn-']:focus,
+circle[data-testid^='pawn-']:focus-visible,
+[data-testid='pawn-layer'] :focus,
+[data-testid='pawn-layer'] :focus-visible {
+  outline: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -122,4 +133,118 @@ button,
 }
 .seat-blue {
   --seat: var(--blue);
+}
+
+/* Perfect square board driven by one dimension */
+.board-wrap {
+  width: min(100%, calc(100dvh - var(--hud-reserve)));
+  aspect-ratio: 1 / 1;
+  height: auto !important;
+  max-height: none;
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+@media (min-width: 1024px) {
+  .board-wrap {
+    --hud-reserve: 2rem;
+    width: min(calc(100dvh - 2rem), calc(100dvw - 20rem));
+    max-width: 100%;
+  }
+
+  .game-screen {
+    align-items: center;
+  }
+}
+
+/* Landscape phones: side-by-side, compact HUD */
+@media (orientation: landscape) and (max-height: 520px) {
+  .game-screen {
+    flex-direction: row !important;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.4rem !important;
+  }
+
+  .board-wrap {
+    --hud-reserve: 0.8rem;
+    width: min(100dvh - 0.8rem, 55dvw);
+    max-height: calc(100dvh - 0.8rem);
+  }
+
+  .hud-panel {
+    width: min(18rem, 42dvw) !important;
+    max-height: calc(100dvh - 0.8rem);
+    overflow-y: auto;
+    gap: 0.4rem !important;
+    padding: 0.5rem !important;
+  }
+
+  .hud-panel .player-card {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .hud-dice [data-testid='dice-face'] {
+    height: 3.25rem !important;
+    width: 3.25rem !important;
+  }
+
+  .hud-log {
+    max-height: 3.5rem !important;
+  }
+}
+
+.player-card .active-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 80% at 0% 50%,
+    color-mix(in oklab, var(--seat) 28%, transparent),
+    transparent 70%
+  );
+  animation: breathe 2.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.mode-art {
+  position: relative;
+  overflow: hidden;
+  height: 4.5rem;
+  border-radius: 0.75rem;
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  animation: confetti-fall 2.8s ease-in forwards;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(120px) rotate(420deg);
+    opacity: 0;
+  }
+}
+
+.podium-1 {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent),
+    0 12px 32px rgba(0, 0, 0, 0.25);
 }
