@@ -2,41 +2,27 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { GameState, Move, SeatColor } from '../engine/types';
 import { getPawnCell, hopWaypoints, getYardSlotCell } from '../engine/selectors';
-import { ringIndexOf, cellOf } from '../engine/board';
-
-const COLOR: Record<SeatColor, string> = {
-  red: '#e23d3d',
-  green: '#2f9e5c',
-  yellow: '#e2b93d',
-  blue: '#3d7ee2',
-};
-
-const COLOR_MID: Record<SeatColor, string> = {
-  red: '#c42929',
-  green: '#268a4d',
-  yellow: '#c9a028',
-  blue: '#2f6bc9',
-};
-
-const COLOR_DEEP: Record<SeatColor, string> = {
-  red: '#7a1515',
-  green: '#124d2a',
-  yellow: '#7a5c10',
-  blue: '#163f7a',
-};
+import { ringIndexOf, cellOf, SEATS } from '../engine/board';
+import { SEAT_DEEP, SEAT_HEX, SEAT_MID, ACCENT } from '../theme/seats';
+import { bounceHop, captureHop, type HopTrack } from '../ui/hop';
+import { IMPACT_GAP_S } from '../ui/motion';
 
 interface Props {
   game: GameState;
   movableIds: Set<string>;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onDest: (id: string) => void;
   reducedMotion?: boolean;
   previewPawnId?: string | null;
+  onHopsScheduled?: (ms: number) => void;
+  onHopComplete?: () => void;
+  onImpact?: (x: number, y: number) => void;
+  onHopSfx?: (kind: 'land' | 'capture' | 'home') => void;
 }
 
-type Hop = { cx: number[]; cy: number[]; duration: number };
+type Hop = HopTrack;
 
-/** Classic Ludo token: shadow + base + body + crown + specular. */
 function Token3D({
   color,
   cx,
@@ -60,7 +46,6 @@ function Token3D({
 
   return (
     <g style={{ pointerEvents: 'none' }}>
-      {/* Contact shadow */}
       <ellipse
         cx={cx + 0.02}
         cy={cy + r * 0.55}
@@ -69,14 +54,13 @@ function Token3D({
         fill="rgba(0,0,0,0.35)"
         filter="url(#pawn-blur)"
       />
-      {/* Base disc rim */}
       <ellipse
         cx={cx}
         cy={cy + r * 0.28}
         rx={baseR}
         ry={baseR * 0.42}
         fill={`url(#pawn-base-${color})`}
-        stroke={COLOR_DEEP[color]}
+        stroke={SEAT_DEEP[color]}
         strokeWidth={0.035}
       />
       <ellipse
@@ -86,16 +70,24 @@ function Token3D({
         ry={baseR * 0.28}
         fill={`url(#pawn-base-inner-${color})`}
       />
-      {/* Body sphere */}
       <circle
         cx={cx}
         cy={bodyCy}
         r={bodyR}
         fill={`url(#pawn-body-${color})`}
-        stroke={selected ? '#fff' : movable ? 'rgba(255,255,255,0.55)' : COLOR_DEEP[color]}
+        stroke={selected ? '#fff' : movable ? 'rgba(255,255,255,0.55)' : SEAT_DEEP[color]}
         strokeWidth={selected ? 0.09 : movable ? 0.07 : 0.04}
       />
-      {/* Equator band for volume */}
+      <ellipse
+        cx={cx}
+        cy={bodyCy + bodyR * 0.08}
+        rx={bodyR * 0.82}
+        ry={bodyR * 0.16}
+        fill="none"
+        stroke={SEAT_HEX[color]}
+        strokeWidth={0.045}
+        opacity={0.85}
+      />
       <ellipse
         cx={cx}
         cy={bodyCy + bodyR * 0.15}
@@ -104,16 +96,14 @@ function Token3D({
         fill={`url(#pawn-band-${color})`}
         opacity={0.55}
       />
-      {/* Crown / head knob */}
       <circle
         cx={cx}
         cy={crownCy}
         r={crownR}
         fill={`url(#pawn-crown-${color})`}
-        stroke={COLOR_DEEP[color]}
+        stroke={SEAT_DEEP[color]}
         strokeWidth={0.03}
       />
-      {/* Specular highlights */}
       <ellipse
         cx={cx - bodyR * 0.28}
         cy={bodyCy - bodyR * 0.32}
@@ -127,7 +117,6 @@ function Token3D({
         r={crownR * 0.28}
         fill="rgba(255,255,255,0.65)"
       />
-      {/* Rim light */}
       <path
         d={`M ${cx + bodyR * 0.55} ${bodyCy - bodyR * 0.55}
             A ${bodyR} ${bodyR} 0 0 1 ${cx + bodyR * 0.7} ${bodyCy + bodyR * 0.2}`}
@@ -145,8 +134,13 @@ export function PawnLayer({
   movableIds,
   selectedId,
   onSelect,
+  onDest,
   reducedMotion,
   previewPawnId,
+  onHopsScheduled,
+  onHopComplete,
+  onImpact,
+  onHopSfx,
 }: Props) {
   const yardSlots = useMemo(() => {
     const map = new Map<string, number>();
@@ -184,6 +178,14 @@ export function PawnLayer({
 
   const prevProgress = useRef(new Map<string, number>());
   const [hops, setHops] = useState<Record<string, Hop>>({});
+  const [impact, setImpact] = useState<{ x: number; y: number; key: number } | null>(null);
+  const [homeBurst, setHomeBurst] = useState<{ x: number; y: number; color: SeatColor; key: number } | null>(
+    null,
+  );
+  const [lingerPreviews, setLingerPreviews] = useState<
+    { move: Move; cell: { row: number; col: number }; strong: boolean; color: SeatColor }[]
+  >([]);
+  const hopGen = useRef(0);
 
   const progressSig = game.players
     .map((p) => p.pawns.map((x) => `${x.id}:${x.progress}`).join(','))
@@ -191,6 +193,16 @@ export function PawnLayer({
 
   useEffect(() => {
     const nextHops: Record<string, Hop> = {};
+    const captures: {
+      id: string;
+      from: { x: number; y: number };
+      to: { x: number; y: number };
+    }[] = [];
+    let moverDuration = 0;
+    let homeAt: { x: number; y: number; color: SeatColor } | null = null;
+    let impactAt: { x: number; y: number } | null = null;
+    let sawChange = false;
+
     for (const player of game.players) {
       for (const pawn of player.pawns) {
         const prev = prevProgress.current.get(pawn.id);
@@ -199,6 +211,7 @@ export function PawnLayer({
           continue;
         }
         if (prev === pawn.progress) continue;
+        sawChange = true;
 
         const slot = yardSlots.get(pawn.id);
         const toCell = getPawnCell(pawn.seat, pawn.progress, pawn.index, slot);
@@ -208,56 +221,107 @@ export function PawnLayer({
             : getPawnCell(pawn.seat, prev, pawn.index, 0);
 
         prevProgress.current.set(pawn.id, pawn.progress);
-
         if (reducedMotion) continue;
 
+        const from = { x: fromCell.col + 0.5, y: fromCell.row + 0.5 };
+        const to = { x: toCell.col + 0.5, y: toCell.row + 0.5 };
+
         if (pawn.progress < 0 && prev >= 0) {
-          const mid = {
-            row: (fromCell.row + toCell.row) / 2 - 1.2,
-            col: (fromCell.col + toCell.col) / 2,
-          };
-          nextHops[pawn.id] = {
-            cx: [fromCell.col + 0.5, mid.col + 0.5, toCell.col + 0.5],
-            cy: [fromCell.row + 0.5, mid.row + 0.5, toCell.row + 0.5],
-            duration: 0.55,
-          };
+          captures.push({ id: pawn.id, from, to });
+          impactAt = from;
           continue;
         }
 
         const wrapped = prev > 40 && pawn.progress < 20 && prev <= 50;
         const waypoints = hopWaypoints(pawn.seat, prev, pawn.progress, wrapped);
-        if (waypoints.length === 0) continue;
-
-        nextHops[pawn.id] = {
-          cx: [fromCell.col + 0.5, ...waypoints.map((c) => c.col + 0.5)],
-          cy: [fromCell.row + 0.5, ...waypoints.map((c) => c.row + 0.5)],
-          duration: Math.min(0.9, 0.1 + waypoints.length * 0.09),
-        };
+        const points = [
+          from,
+          ...waypoints.map((c) => ({ x: c.col + 0.5, y: c.row + 0.5 })),
+        ];
+        const hop = bounceHop(points, { arc: prev < 0 });
+        if (!hop) continue;
+        nextHops[pawn.id] = hop;
+        moverDuration = Math.max(moverDuration, hop.duration);
+        if (pawn.progress === 56) {
+          const hub = SEATS[pawn.seat]!;
+          const cx = hub.color === 'red' || hub.color === 'blue' ? 6.7 : 8.3;
+          const cy = hub.color === 'red' || hub.color === 'green' ? 6.7 : 8.3;
+          homeAt = { x: cx, y: cy, color: player.color };
+        }
       }
     }
 
-    if (Object.keys(nextHops).length === 0) return;
+    for (const cap of captures) {
+      nextHops[cap.id] = captureHop(cap.from, cap.to, moverDuration + IMPACT_GAP_S);
+    }
+
+    if (!sawChange) return;
+    const gen = ++hopGen.current;
+
+    const maxMs =
+      Object.keys(nextHops).length === 0
+        ? 0
+        : Math.max(...Object.values(nextHops).map((h) => (h.delay + h.duration) * 1000));
+
+    onHopsScheduled?.(maxMs);
+
+    if (maxMs === 0) return;
 
     setHops((h) => ({ ...h, ...nextHops }));
-    const timers = Object.entries(nextHops).map(([id, hop]) =>
-      window.setTimeout(() => {
-        setHops((h) => {
-          const copy = { ...h };
-          delete copy[id];
-          return copy;
-        });
-      }, hop.duration * 1000 + 40),
-    );
-    return () => timers.forEach(clearTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progressSig, reducedMotion, yardSlots]);
 
-  const previews = useMemo(() => {
+    if (impactAt) {
+      window.setTimeout(() => {
+        if (hopGen.current !== gen) return;
+        setImpact({ x: impactAt!.x, y: impactAt!.y, key: gen });
+        onImpact?.(impactAt!.x, impactAt!.y);
+        onHopSfx?.('capture');
+      }, moverDuration * 1000);
+    }
+
+    if (homeAt) {
+      window.setTimeout(() => {
+        if (hopGen.current !== gen) return;
+        setHomeBurst({ ...homeAt!, key: gen });
+        onHopSfx?.('home');
+      }, moverDuration * 1000);
+    } else if (!impactAt) {
+      window.setTimeout(() => onHopSfx?.('land'), Math.min(180, maxMs));
+    }
+
+    const timers = Object.entries(nextHops).map(([id, hop]) =>
+      window.setTimeout(
+        () => {
+          if (hopGen.current !== gen) return;
+          setHops((h) => {
+            const copy = { ...h };
+            delete copy[id];
+            return copy;
+          });
+        },
+        (hop.delay + hop.duration) * 1000 + 40,
+      ),
+    );
+
+    const done = window.setTimeout(() => {
+      if (hopGen.current !== gen) return;
+      setLingerPreviews([]);
+      onHopComplete?.();
+    }, maxMs + 50);
+
+    return () => {
+      timers.forEach(clearTimeout);
+      clearTimeout(done);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progressSig, reducedMotion]);
+
+  const livePreviews = useMemo(() => {
     if (game.phase !== 'waiting_move') {
-      return [] as { move: Move; cell: { row: number; col: number }; strong: boolean }[];
+      return [] as { move: Move; cell: { row: number; col: number }; strong: boolean; color: SeatColor }[];
     }
     return game.legalMoves.map((move) => {
       const pawn = game.players.flatMap((p) => p.pawns).find((p) => p.id === move.pawnId)!;
+      const player = game.players.find((p) => p.pawns.some((x) => x.id === move.pawnId))!;
       const cell =
         move.toProgress < 0
           ? getYardSlotCell(pawn.seat, 0)
@@ -266,9 +330,39 @@ export function PawnLayer({
         move,
         cell,
         strong: previewPawnId === move.pawnId || selectedId === move.pawnId,
+        color: player.color,
       };
     });
   }, [game.phase, game.legalMoves, game.players, previewPawnId, selectedId]);
+
+  useEffect(() => {
+    if (livePreviews.length > 0) setLingerPreviews(livePreviews);
+  }, [livePreviews]);
+
+  const previews = livePreviews.length > 0 ? livePreviews : lingerPreviews;
+
+  const paths = useMemo(() => {
+    if (game.phase !== 'waiting_move') return [];
+    return game.legalMoves.map((move) => {
+      const pawn = game.players.flatMap((p) => p.pawns).find((p) => p.id === move.pawnId)!;
+      const player = game.players.find((p) => p.pawns.some((x) => x.id === move.pawnId))!;
+      const slot = yardSlots.get(pawn.id);
+      const fromCell = getPawnCell(pawn.seat, pawn.progress, pawn.index, slot);
+      const waypoints = hopWaypoints(pawn.seat, pawn.progress, move.toProgress, move.wrappedLap);
+      const pts = [
+        `${fromCell.col + 0.5},${fromCell.row + 0.5}`,
+        ...waypoints.map((c) => `${c.col + 0.5},${c.row + 0.5}`),
+      ].join(' ');
+      return {
+        id: move.pawnId,
+        pts,
+        color: player.color,
+        strong: previewPawnId === move.pawnId || selectedId === move.pawnId,
+        dest: waypoints[waypoints.length - 1] ?? fromCell,
+        steps: waypoints.length,
+      };
+    });
+  }, [game.phase, game.legalMoves, game.players, previewPawnId, selectedId, yardSlots]);
 
   const allPawns = useMemo(
     () =>
@@ -289,47 +383,80 @@ export function PawnLayer({
           <filter id="pawn-blur" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="0.06" />
           </filter>
-          {(Object.keys(COLOR) as SeatColor[]).map((c) => (
+          {(Object.keys(SEAT_HEX) as SeatColor[]).map((c) => (
             <g key={c}>
               <radialGradient id={`pawn-body-${c}`} cx="32%" cy="28%" r="72%">
                 <stop offset="0%" stopColor="#fff" stopOpacity="0.7" />
-                <stop offset="28%" stopColor={COLOR[c]} />
-                <stop offset="72%" stopColor={COLOR_MID[c]} />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+                <stop offset="28%" stopColor={SEAT_HEX[c]} />
+                <stop offset="72%" stopColor={SEAT_MID[c]} />
+                <stop offset="100%" stopColor={SEAT_DEEP[c]} />
               </radialGradient>
               <radialGradient id={`pawn-crown-${c}`} cx="35%" cy="30%" r="70%">
                 <stop offset="0%" stopColor="#fff" stopOpacity="0.75" />
-                <stop offset="40%" stopColor={COLOR[c]} />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+                <stop offset="40%" stopColor={SEAT_HEX[c]} />
+                <stop offset="100%" stopColor={SEAT_DEEP[c]} />
               </radialGradient>
               <linearGradient id={`pawn-base-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor={COLOR[c]} />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+                <stop offset="0%" stopColor={SEAT_HEX[c]} />
+                <stop offset="100%" stopColor={SEAT_DEEP[c]} />
               </linearGradient>
               <radialGradient id={`pawn-base-inner-${c}`} cx="50%" cy="40%" r="60%">
-                <stop offset="0%" stopColor={COLOR[c]} stopOpacity="0.9" />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+                <stop offset="0%" stopColor={SEAT_HEX[c]} stopOpacity="0.9" />
+                <stop offset="100%" stopColor={SEAT_DEEP[c]} />
               </radialGradient>
               <linearGradient id={`pawn-band-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor={COLOR_DEEP[c]} stopOpacity="0" />
-                <stop offset="50%" stopColor={COLOR_DEEP[c]} stopOpacity="0.45" />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} stopOpacity="0" />
+                <stop offset="0%" stopColor={SEAT_DEEP[c]} stopOpacity="0" />
+                <stop offset="50%" stopColor={SEAT_DEEP[c]} stopOpacity="0.45" />
+                <stop offset="100%" stopColor={SEAT_DEEP[c]} stopOpacity="0" />
               </linearGradient>
             </g>
           ))}
         </defs>
 
+        {paths.map((p) => (
+          <g key={`path-${p.id}`}>
+            <polyline
+              points={p.pts}
+              fill="none"
+              stroke={p.strong ? SEAT_HEX[p.color] : SEAT_HEX[p.color]}
+              strokeWidth={p.strong ? 0.1 : 0.045}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              opacity={p.strong ? 0.85 : 0.28}
+            />
+            {p.strong && p.dest && (
+              <text
+                x={p.dest.col + 0.5}
+                y={p.dest.row + 0.18}
+                textAnchor="middle"
+                fontSize={0.32}
+                fill={ACCENT}
+                fontWeight={700}
+              >
+                {p.steps}
+              </text>
+            )}
+          </g>
+        ))}
+
         {previews.map(({ move, cell, strong }) => (
           <g key={`dest-${move.pawnId}`} data-testid={`dest-${move.pawnId}`}>
-            <circle
+            <motion.circle
               cx={cell.col + 0.5}
               cy={cell.row + 0.5}
-              r={strong ? 0.38 : 0.28}
+              r={strong ? 0.4 : 0.3}
               fill="none"
-              stroke={strong ? '#5ec2a0' : 'rgba(94,194,160,0.55)'}
+              stroke={strong ? ACCENT : 'rgba(94,194,160,0.55)'}
               strokeWidth={strong ? 0.1 : 0.06}
               strokeDasharray={strong ? undefined : '0.12 0.1'}
-              opacity={strong ? 1 : 0.75}
+              className="pointer-events-auto cursor-pointer dest-ring"
+              style={{ pointerEvents: 'auto' }}
+              animate={{ opacity: strong ? [0.7, 1, 0.7] : [0.45, 0.75, 0.45] }}
+              transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDest(move.pawnId);
+              }}
             />
             {strong && (
               <circle
@@ -337,10 +464,51 @@ export function PawnLayer({
                 cy={cell.row + 0.5}
                 r={0.14}
                 fill="rgba(94,194,160,0.45)"
+                className="pointer-events-auto cursor-pointer"
+                style={{ pointerEvents: 'auto' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDest(move.pawnId);
+                }}
               />
             )}
           </g>
         ))}
+
+        {impact && (
+          <motion.circle
+            key={`impact-${impact.key}`}
+            cx={impact.x}
+            cy={impact.y}
+            r={0.2}
+            fill="rgba(255,255,255,0.9)"
+            initial={{ r: 0.15, opacity: 0.95 }}
+            animate={{ r: 0.7, opacity: 0 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
+          />
+        )}
+
+        {homeBurst &&
+          Array.from({ length: 8 }, (_, i) => {
+            const a = (i / 8) * Math.PI * 2;
+            return (
+              <motion.circle
+                key={`burst-${homeBurst.key}-${i}`}
+                cx={homeBurst.x}
+                cy={homeBurst.y}
+                r={0.08}
+                fill={SEAT_HEX[homeBurst.color]}
+                initial={{ cx: homeBurst.x, cy: homeBurst.y, opacity: 1, r: 0.1 }}
+                animate={{
+                  cx: homeBurst.x + Math.cos(a) * 0.85,
+                  cy: homeBurst.y + Math.sin(a) * 0.85,
+                  opacity: 0,
+                  r: 0.04,
+                }}
+                transition={{ duration: 0.55, ease: 'easeOut' }}
+              />
+            );
+          })}
 
         {allPawns.map(({ pawn, player }) => {
           const slot = yardSlots.get(pawn.id);
@@ -355,21 +523,25 @@ export function PawnLayer({
           const hop = hops[pawn.id];
           const visualR = movable ? 0.42 : 0.36;
 
+          const hopTransition = hop
+            ? {
+                duration: hop.duration,
+                delay: hop.delay,
+                ease: 'easeInOut' as const,
+                times: hop.times,
+              }
+            : null;
+
           const transition = reducedMotion
             ? { duration: 0 }
-            : hop
-              ? {
-                  duration: hop.duration,
-                  ease: 'easeInOut' as const,
-                  times: hop.cx.map((_, i) => i / Math.max(1, hop.cx.length - 1)),
-                }
+            : hopTransition
+              ? hopTransition
               : { type: 'spring' as const, stiffness: 380, damping: 26 };
 
           return (
             <g key={pawn.id}>
-              {/* Invisible hit target — carries testids / a11y */}
               <motion.circle
-                r={0.55}
+                r={0.85}
                 fill="transparent"
                 className="pointer-events-auto cursor-pointer"
                 style={{ pointerEvents: 'auto', outline: 'none' }}
@@ -381,7 +553,7 @@ export function PawnLayer({
                   onSelect(pawn.id);
                 }}
                 initial={false}
-                animate={hop ? { cx: hop.cx, cy: hop.cy } : { cx, cy }}
+                animate={hop ? { cx: hop.x, cy: hop.y } : { cx, cy }}
                 transition={transition}
                 data-testid={pawn.id}
                 data-progress={pawn.progress}
@@ -395,21 +567,25 @@ export function PawnLayer({
                 animate={
                   hop
                     ? {
-                        x: hop.cx,
-                        y: hop.cy,
-                        scale: selected ? 1.1 : movable ? [1, 1.06, 1] : 1,
+                        x: hop.x,
+                        y: hop.y,
+                        scaleY: hop.scaleY,
+                        scale: hop.scale,
+                        rotate: hop.rotate,
                       }
                     : {
                         x: cx,
                         y: cy,
+                        scaleY: 1,
                         scale: selected ? 1.1 : movable ? [1, 1.06, 1] : 1,
+                        rotate: 0,
                       }
                 }
                 transition={
                   reducedMotion
                     ? { duration: 0 }
                     : hop
-                      ? transition
+                      ? hopTransition!
                       : movable
                         ? {
                             scale: { duration: 1.15, repeat: Infinity, ease: 'easeInOut' },

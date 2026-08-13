@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
+import { DICE_SETTLE_S, DICE_TUMBLE_S } from '../ui/motion';
 
 const FACE_DOTS: Record<number, [number, number][]> = {
   1: [[50, 50]],
@@ -34,7 +36,6 @@ const FACE_DOTS: Record<number, [number, number][]> = {
   ],
 };
 
-/** Camera rotation that brings each face to the front. */
 const FACE_ROTATION: Record<number, { x: number; y: number }> = {
   1: { x: 0, y: 0 },
   2: { x: 0, y: -90 },
@@ -79,40 +80,94 @@ function DiceFace({
 
 interface Props {
   value: number | null;
+  lastValue?: number | null;
   rolling?: boolean;
   disabled?: boolean;
   onRoll: () => void;
+  spin?: { x: number; y: number };
+  hint?: string | null;
+  extraRoll?: boolean;
+  timerFraction?: number | null;
 }
 
-export function Dice({ value, rolling, disabled, onRoll }: Props) {
-  const showValue = value !== null ? value : 1;
-  const settled = FACE_ROTATION[showValue]!;
-  const soft = value === null && !rolling;
+export function Dice({
+  value,
+  lastValue = null,
+  rolling,
+  disabled,
+  onRoll,
+  spin = { x: 400, y: -520 },
+  hint,
+  extraRoll,
+  timerFraction = null,
+}: Props) {
+  const [shown, setShown] = useState(value ?? lastValue ?? 1);
+
+  useEffect(() => {
+    if (value !== null) setShown(value);
+    else if (lastValue !== null) setShown(lastValue);
+  }, [value, lastValue]);
+
+  const settled = FACE_ROTATION[shown]!;
+  const soft = value === null && lastValue === null && !rolling;
+  const isSix = shown === 6 && !rolling && !soft;
+
+  const caption = rolling
+    ? 'Rolling…'
+    : hint
+      ? hint
+      : extraRoll
+        ? 'Roll again'
+        : disabled
+          ? value || lastValue
+            ? `Rolled ${shown}`
+            : 'Wait'
+          : value
+            ? `Rolled ${value}`
+            : 'Tap to roll';
+
+  const shownValue = value !== null && !rolling ? value : lastValue !== null && !rolling ? lastValue : null;
 
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onRoll}
       disabled={disabled}
+      whileTap={disabled ? undefined : { scale: 0.92 }}
       className="relative disabled:opacity-50"
       data-testid="dice-button"
       aria-label={
         rolling
           ? 'Dice rolling'
-          : value
-            ? `Dice showing ${value}. Click to roll.`
+          : shownValue
+            ? `Dice showing ${shownValue}. Click to roll.`
             : 'Roll dice'
       }
     >
-      <div className="dice-scene">
+      {timerFraction !== null && (
+        <svg className="turn-timer-ring" viewBox="0 0 36 36" aria-hidden>
+          <circle cx="18" cy="18" r="16" className="turn-timer-track" />
+          <circle
+            cx="18"
+            cy="18"
+            r="16"
+            className="turn-timer-value"
+            style={{
+              strokeDasharray: `${timerFraction * 100.5} 100.5`,
+              stroke: timerFraction < 0.2 ? 'var(--danger)' : 'var(--accent)',
+            }}
+          />
+        </svg>
+      )}
+      <div className="dice-scene" data-rolling={rolling ? 'true' : 'false'} data-six={isSix ? 'true' : 'false'}>
         <motion.div
           className="dice-cube"
           style={{ transformStyle: 'preserve-3d' }}
           animate={
             rolling
               ? {
-                  rotateX: [settled.x, settled.x + 400, settled.x + 760],
-                  rotateY: [settled.y, settled.y - 520, settled.y - 1040],
+                  rotateX: [settled.x, settled.x + spin.x, settled.x + spin.x * 1.9],
+                  rotateY: [settled.y, settled.y + spin.y, settled.y + spin.y * 2],
                   z: [0, 28, 0],
                 }
               : {
@@ -122,11 +177,12 @@ export function Dice({ value, rolling, disabled, onRoll }: Props) {
                 }
           }
           transition={{
-            duration: rolling ? 0.65 : 0.35,
+            duration: rolling ? DICE_TUMBLE_S : DICE_SETTLE_S,
             ease: rolling ? [0.2, 0.8, 0.2, 1] : 'easeOut',
           }}
           data-testid="dice-face"
-          data-value={value !== null && !rolling ? String(value) : ''}
+          data-value={shownValue !== null ? String(shownValue) : ''}
+          data-six={isSix ? 'true' : 'false'}
         >
           <DiceFace value={1} transform="translateZ(var(--dice-z))" soft={soft} />
           <DiceFace value={6} transform="rotateY(180deg) translateZ(var(--dice-z))" soft={soft} />
@@ -137,9 +193,9 @@ export function Dice({ value, rolling, disabled, onRoll }: Props) {
         </motion.div>
         <div className="dice-floor-shadow" aria-hidden />
       </div>
-      <span className="mt-2 block text-center text-xs" style={{ color: 'var(--muted)' }}>
-        {rolling ? 'Rolling…' : disabled ? 'Wait' : value ? `Rolled ${value}` : 'Tap to roll'}
+      <span className="mt-2 block text-center text-xs" style={{ color: extraRoll || hint ? 'var(--accent)' : 'var(--muted)' }}>
+        {caption}
       </span>
-    </button>
+    </motion.button>
   );
 }

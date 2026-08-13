@@ -1,20 +1,8 @@
 import type { ReactNode } from 'react';
 import { RING, SEATS, SAFE_RING_INDICES } from '../engine/board';
+import { getYardSlotCell } from '../engine/selectors';
 import type { SeatColor } from '../engine/types';
-
-const COLOR: Record<SeatColor, string> = {
-  red: '#e23d3d',
-  green: '#2f9e5c',
-  yellow: '#e2b93d',
-  blue: '#3d7ee2',
-};
-
-const COLOR_DEEP: Record<SeatColor, string> = {
-  red: '#b82828',
-  green: '#217a45',
-  yellow: '#b89220',
-  blue: '#2a5fb8',
-};
+import { GOLD, GOLD_SOFT, SEAT_BOARD_DEEP, SEAT_HEX } from '../theme/seats';
 
 function Star({ cx, cy }: { cx: number; cy: number }) {
   const r = 0.28;
@@ -26,13 +14,30 @@ function Star({ cx, cy }: { cx: number; cy: number }) {
     points.push(`${cx + Math.cos(b) * r * 0.4},${cy + Math.sin(b) * r * 0.4}`);
   }
   return (
-    <polygon
-      points={points.join(' ')}
-      fill="#c9a227"
-      stroke="#8a6d14"
-      strokeWidth={0.02}
-      opacity={0.95}
-    />
+    <g>
+      <circle cx={cx} cy={cy} r={0.22} fill={GOLD} opacity={0.22} />
+      <polygon
+        points={points.join(' ')}
+        fill={GOLD}
+        stroke="#8a6d14"
+        strokeWidth={0.02}
+        opacity={0.95}
+      />
+    </g>
+  );
+}
+
+function LockGlyph({ cx, cy }: { cx: number; cy: number }) {
+  return (
+    <g transform={`translate(${cx} ${cy})`}>
+      <rect x={-0.16} y={-0.02} width={0.32} height={0.24} rx={0.05} fill={GOLD_SOFT} />
+      <path
+        d="M -0.1 -0.02 V -0.14 A 0.1 0.1 0 0 1 0.1 -0.14 V -0.02"
+        fill="none"
+        stroke={GOLD_SOFT}
+        strokeWidth={0.05}
+      />
+    </g>
   );
 }
 
@@ -48,9 +53,8 @@ export function BoardSvg({
   const active = new Set(activeSeats ?? [0, 1, 2, 3]);
   const cells: ReactNode[] = [];
 
-  // Soft path wash
   cells.push(
-    <rect key="board-bg" x={0} y={0} width={15} height={15} fill="#c5ced9" rx={0.15} />,
+    <rect key="board-bg" x={0} y={0} width={15} height={15} fill="#cbbfa8" rx={0.18} />,
   );
 
   for (let r = 0; r < 15; r++) {
@@ -58,14 +62,14 @@ export function BoardSvg({
       cells.push(
         <rect
           key={`base-${r}-${c}`}
-          x={c + 0.03}
-          y={r + 0.03}
-          width={0.94}
-          height={0.94}
-          rx={0.08}
-          fill="#e8eef5"
-          stroke="rgba(20,30,45,0.08)"
-          strokeWidth={0.02}
+          x={c + 0.04}
+          y={r + 0.04}
+          width={0.92}
+          height={0.92}
+          rx={0.1}
+          fill="url(#cell-face)"
+          stroke="rgba(20,30,45,0.12)"
+          strokeWidth={0.025}
           data-testid={`cell-r${r}-c${c}`}
         />,
       );
@@ -75,11 +79,10 @@ export function BoardSvg({
   for (const seat of SEATS) {
     const used = active.has(seat.seat);
     const y = seat.yard;
-    const fill = used ? COLOR[seat.color] : '#9aa6b5';
-    const deep = used ? COLOR_DEEP[seat.color] : '#7a8798';
-    const isActiveYard = activeSeat === seat.seat;
+    const fill = used ? SEAT_HEX[seat.color] : '#1a222e';
+    const deep = used ? SEAT_BOARD_DEEP[seat.color] : '#121820';
+    const isActiveYard = used && activeSeat === seat.seat;
 
-    // Yard outer with gradient feel via two layers
     cells.push(
       <rect
         key={`yard-${seat.seat}`}
@@ -88,8 +91,8 @@ export function BoardSvg({
         width={y.colMax - y.colMin + 1}
         height={y.rowMax - y.rowMin + 1}
         fill={fill}
-        opacity={used ? 1 : 0.35}
-        rx={0.2}
+        opacity={used ? 1 : 0.92}
+        rx={0.22}
       />,
     );
     cells.push(
@@ -99,14 +102,14 @@ export function BoardSvg({
         y={y.rowMin + 1}
         width={y.colMax - y.colMin - 1}
         height={y.rowMax - y.rowMin - 1}
-        fill="#f7fafc"
-        opacity={used ? 1 : 0.4}
-        rx={0.25}
-        stroke={isActiveYard ? fill : 'rgba(0,0,0,0.06)'}
-        strokeWidth={isActiveYard ? 0.12 : 0.03}
+        fill={used ? '#f4efe6' : '#141b24'}
+        opacity={1}
+        rx={0.28}
+        stroke={isActiveYard ? fill : used ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.04)'}
+        strokeWidth={isActiveYard ? 0.14 : 0.03}
+        className={isActiveYard ? 'yard-active-stroke' : undefined}
       />,
     );
-    // Soft inset shadow ring for yard pad
     cells.push(
       <rect
         key={`yard-pad-${seat.seat}`}
@@ -117,10 +120,28 @@ export function BoardSvg({
         fill="none"
         stroke={deep}
         strokeWidth={0.04}
-        opacity={used ? 0.25 : 0.1}
+        opacity={used ? 0.28 : 0.08}
         rx={0.2}
       />,
     );
+
+    if (used) {
+      for (let i = 0; i < 4; i++) {
+        const slot = getYardSlotCell(seat.seat, i);
+        cells.push(
+          <circle
+            key={`well-${seat.seat}-${i}`}
+            cx={slot.col + 0.5}
+            cy={slot.row + 0.5}
+            r={0.58}
+            fill="url(#well-inset)"
+            stroke={deep}
+            strokeWidth={0.045}
+            opacity={0.95}
+          />,
+        );
+      }
+    }
   }
 
   for (let i = 0; i < RING.length; i++) {
@@ -133,10 +154,10 @@ export function BoardSvg({
         y={cell.row + 0.05}
         width={0.9}
         height={0.9}
-        rx={0.1}
-        fill={safe ? '#fbf8ef' : '#f4f7fb'}
-        stroke="rgba(20,30,45,0.1)"
-        strokeWidth={0.025}
+        rx={0.12}
+        fill={safe ? 'url(#cell-safe)' : 'url(#cell-path)'}
+        stroke="rgba(20,30,45,0.14)"
+        strokeWidth={0.03}
         data-testid={`cell-r${cell.row}-c${cell.col}`}
         data-ring-index={String(i)}
         {...(safe ? { 'data-safe': 'true' } : {})}
@@ -154,10 +175,10 @@ export function BoardSvg({
         y={cell.row + 0.05}
         width={0.9}
         height={0.9}
-        rx={0.1}
-        fill={COLOR[seat.color]}
-        stroke={COLOR_DEEP[seat.color]}
-        strokeWidth={0.04}
+        rx={0.12}
+        fill={SEAT_HEX[seat.color]}
+        stroke={SEAT_BOARD_DEEP[seat.color]}
+        strokeWidth={0.045}
       />,
     );
   }
@@ -172,24 +193,25 @@ export function BoardSvg({
           y={cell.row + 0.05}
           width={0.9}
           height={0.9}
-          rx={0.1}
-          fill={used ? COLOR[seat.color] : '#9aa6b5'}
-          opacity={used ? 1 : 0.35}
-          stroke={used ? COLOR_DEEP[seat.color] : '#7a8798'}
+          rx={0.12}
+          fill={used ? SEAT_HEX[seat.color] : '#1a222e'}
+          opacity={used ? 1 : 0.55}
+          stroke={used ? SEAT_BOARD_DEEP[seat.color] : '#121820'}
           strokeWidth={0.03}
         />,
       );
     }
   }
 
-  const triangles = [
-    { points: '6,6 7.5,7.5 6,9', fill: COLOR.red, deep: COLOR_DEEP.red },
-    { points: '6,6 9,6 7.5,7.5', fill: COLOR.green, deep: COLOR_DEEP.green },
-    { points: '9,6 9,9 7.5,7.5', fill: COLOR.yellow, deep: COLOR_DEEP.yellow },
-    { points: '6,9 9,9 7.5,7.5', fill: COLOR.blue, deep: COLOR_DEEP.blue },
+  const triangles: { points: string; fill: string; deep: string; color: SeatColor; used: boolean }[] = [
+    { points: '6,6 7.5,7.5 6,9', fill: SEAT_HEX.red, deep: SEAT_BOARD_DEEP.red, color: 'red', used: active.has(0) },
+    { points: '6,6 9,6 7.5,7.5', fill: SEAT_HEX.green, deep: SEAT_BOARD_DEEP.green, color: 'green', used: active.has(1) },
+    { points: '9,6 9,9 7.5,7.5', fill: SEAT_HEX.yellow, deep: SEAT_BOARD_DEEP.yellow, color: 'yellow', used: active.has(2) },
+    { points: '6,9 9,9 7.5,7.5', fill: SEAT_HEX.blue, deep: SEAT_BOARD_DEEP.blue, color: 'blue', used: active.has(3) },
   ];
 
   const starCells = [...SAFE_RING_INDICES].filter((i) => ![0, 13, 26, 39].includes(i));
+  const activeColor = activeSeat !== null && activeSeat !== undefined ? SEATS[activeSeat]?.color : null;
 
   return (
     <svg
@@ -201,30 +223,54 @@ export function BoardSvg({
       style={{
         background: 'linear-gradient(145deg, #1a222e, #0d1218)',
         boxShadow:
-          '0 24px 48px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
+          '0 24px 48px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -8px 16px rgba(0,0,0,0.35)',
       }}
     >
       <defs>
-        <filter id="hub-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="0.15" result="blur" />
+        <linearGradient id="cell-face" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#f7f4ee" />
+          <stop offset="100%" stopColor="#d9d3c6" />
+        </linearGradient>
+        <linearGradient id="cell-path" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fbf8f2" />
+          <stop offset="100%" stopColor="#e4ddd0" />
+        </linearGradient>
+        <linearGradient id="cell-safe" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fff8e8" />
+          <stop offset="100%" stopColor="#ead9a8" />
+        </linearGradient>
+        <radialGradient id="well-inset" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#fffdf8" />
+          <stop offset="70%" stopColor="#e8e0d2" />
+          <stop offset="100%" stopColor="#cfc4b0" />
+        </radialGradient>
+        <filter id="hub-glow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="0.18" result="blur" />
           <feMerge>
             <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
+      <rect x={0.12} y={0.12} width={14.76} height={14.76} rx={0.22} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={0.08} />
       {cells}
       <g filter="url(#hub-glow)">
         {triangles.map((t) => (
           <polygon
-            key={t.fill}
+            key={t.color}
             points={t.points}
-            fill={t.fill}
-            stroke={t.deep}
+            fill={t.used ? t.fill : '#243040'}
+            stroke={t.used ? t.deep : '#1a2430'}
             strokeWidth={0.04}
+            opacity={t.used ? 1 : 0.45}
+            style={
+              t.used && t.color === activeColor
+                ? { filter: `drop-shadow(0 0 0.25px ${t.fill})` }
+                : undefined
+            }
           />
         ))}
-        <circle cx={7.5} cy={7.5} r={0.22} fill="#f5e6a8" stroke="#c9a227" strokeWidth={0.04} />
+        <circle cx={7.5} cy={7.5} r={0.22} fill={GOLD_SOFT} stroke={GOLD} strokeWidth={0.04} />
       </g>
       {starCells.map((i) => {
         const cell = RING[i]!;
@@ -244,15 +290,7 @@ export function BoardSvg({
               stroke="rgba(255,255,255,0.25)"
               strokeWidth={0.03}
             />
-            <text
-              x={first.col + 0.5}
-              y={first.row + 0.68}
-              textAnchor="middle"
-              fontSize={0.38}
-              fill="#f5e6a8"
-            >
-              ⛓
-            </text>
+            <LockGlyph cx={first.col + 0.5} cy={first.row + 0.48} />
           </g>
         );
       })}

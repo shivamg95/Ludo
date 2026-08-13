@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { useAppStore } from '../store/gameStore';
 import { seatsForPlayerCount, SEATS } from '../engine/board';
 import type { GameMode } from '../engine/types';
+import { HubMark, IconMoon, IconSpeaker, IconSun } from './icons';
 
 const MODES: { id: GameMode; title: string; blurb: string }[] = [
   { id: 'classic', title: 'Classic', blurb: 'Race all four home. Play on for places.' },
@@ -33,8 +34,23 @@ function ModeArt({ mode }: { mode: GameMode }) {
       <div className="mode-art" style={{ background: 'linear-gradient(135deg, #142033, #1a2a40)' }}>
         <svg viewBox="0 0 120 64" className="h-full w-full" aria-hidden>
           <circle cx="60" cy="32" r="20" fill="none" stroke="#3d7ee2" strokeWidth="3" />
-          <circle cx="60" cy="32" r="20" fill="none" stroke="#5ec2a0" strokeWidth="3" strokeDasharray="40 80" />
-          <line x1="60" y1="32" x2="60" y2="18" stroke="#e8eef7" strokeWidth="2.5" strokeLinecap="round" />
+          <circle
+            cx="60"
+            cy="32"
+            r="20"
+            fill="none"
+            stroke="#5ec2a0"
+            strokeWidth="3"
+            strokeDasharray="40 80"
+          />
+          <g transform="translate(60 32)">
+            <motion.g
+              animate={{ rotate: 360 }}
+              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+            >
+              <line x1="0" y1="0" x2="0" y2="-14" stroke="#e8eef7" strokeWidth="2.5" strokeLinecap="round" />
+            </motion.g>
+          </g>
           <line x1="60" y1="32" x2="72" y2="36" stroke="#5ec2a0" strokeWidth="2" strokeLinecap="round" />
           <text x="60" y="58" textAnchor="middle" fontSize="8" fill="#8b9bb3">
             SCORE
@@ -48,12 +64,22 @@ function ModeArt({ mode }: { mode: GameMode }) {
       <svg viewBox="0 0 120 64" className="h-full w-full" aria-hidden>
         <rect x="70" y="18" width="18" height="28" rx="3" fill="#2f9e5c" opacity="0.85" />
         <rect x="70" y="18" width="18" height="12" rx="2" fill="rgba(0,0,0,0.45)" />
-        <text x="79" y="28" textAnchor="middle" fontSize="10" fill="#fff">
-          ⛓
-        </text>
+        <rect x="74" y="22" width="10" height="8" rx="1" fill="#f5e6a8" />
         <circle cx="40" cy="32" r="8" fill="#e23d3d" />
-        <path d="M52 32 L66 32" stroke="#e2b93d" strokeWidth="2" strokeDasharray="3 2" />
-        <polygon points="66,28 74,32 66,36" fill="#e2b93d" />
+        <motion.path
+          d="M52 32 L66 32"
+          stroke="#e2b93d"
+          strokeWidth="2"
+          strokeDasharray="3 2"
+          animate={{ opacity: [0.35, 1, 0.35] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.polygon
+          points="66,28 74,32 66,36"
+          fill="#e2b93d"
+          animate={{ x: [0, 3, 0] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+        />
       </svg>
     </div>
   );
@@ -85,36 +111,42 @@ export function SetupScreen() {
       data-testid="setup-screen"
     >
       <header className="mx-auto flex max-w-5xl items-start justify-between gap-4">
-        <div>
-          <p
-            className="text-5xl font-bold tracking-tight sm:text-6xl"
-            style={{ fontFamily: 'var(--font-display)' }}
-            data-testid="brand"
-          >
-            Ludo
-          </p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-            Classic · Timed · Quick
-          </p>
+        <div className="flex items-center gap-3">
+          <HubMark size={42} />
+          <div>
+            <p
+              className="text-5xl font-bold tracking-tight sm:text-6xl"
+              style={{ fontFamily: 'var(--font-display)' }}
+              data-testid="brand"
+            >
+              Ludo
+            </p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+              Classic · Timed · Quick
+            </p>
+          </div>
         </div>
         <div className="flex gap-2">
-          <button
+          <motion.button
             type="button"
-            className="glass rounded-xl px-3 text-sm"
+            whileTap={{ scale: 0.96 }}
+            className="icon-btn glass rounded-xl px-3"
             onClick={() => setMuted(!muted)}
             aria-label={muted ? 'Unmute' : 'Mute'}
             data-testid="mute-toggle"
           >
-            {muted ? 'Muted' : 'Sound'}
-          </button>
-          <button
+            <IconSpeaker off={muted} />
+          </motion.button>
+          <motion.button
             type="button"
-            className="glass rounded-xl px-3 text-sm"
+            whileTap={{ scale: 0.96 }}
+            className="icon-btn glass rounded-xl px-3"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             data-testid="theme-toggle"
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           >
-            {theme === 'dark' ? 'Light' : 'Dark'}
-          </button>
+            {theme === 'dark' ? <IconSun /> : <IconMoon />}
+          </motion.button>
         </div>
       </header>
 
@@ -297,16 +329,17 @@ export function SetupScreen() {
             })}
           </ul>
 
-          <button
+          <motion.button
             type="button"
-            className="mt-6 w-full rounded-2xl py-3 text-base font-semibold disabled:opacity-40"
+            className="cta-shine mt-6 w-full rounded-2xl py-3 text-base font-semibold disabled:opacity-40"
             style={{ background: 'var(--accent)', color: 'var(--bg0)' }}
             disabled={!!disabledReason}
             onClick={() => startGame()}
             data-testid="start-game"
+            whileTap={disabledReason ? undefined : { scale: 0.98 }}
           >
             Start game
-          </button>
+          </motion.button>
           {disabledReason && (
             <p
               className="mt-2 text-center text-sm"

@@ -1,7 +1,9 @@
+import { motion } from 'motion/react';
 import type { GameState } from '../engine/types';
 import { SEATS } from '../engine/board';
 import { formatEvent } from '../engine/selectors';
 import { Dice } from './Dice';
+import { IconLeave, IconSpeaker } from './icons';
 
 function formatMs(ms: number | null): string {
   if (ms === null) return '';
@@ -11,6 +13,11 @@ function formatMs(ms: number | null): string {
   return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
+function titleCase(mode: string) {
+  if (mode === 'timed') return 'X-Minute';
+  return mode.charAt(0).toUpperCase() + mode.slice(1);
+}
+
 interface Props {
   game: GameState;
   onRoll: () => void;
@@ -18,12 +25,37 @@ interface Props {
   muted: boolean;
   onQuit: () => void;
   rolling?: boolean;
+  lastDiceValue?: number | null;
+  hint?: string | null;
+  extraRoll?: boolean;
+  diceSpin?: { x: number; y: number };
+  turnTimerRemainingMs?: number | null;
 }
 
-export function HUD({ game, onRoll, onMuteToggle, muted, onQuit, rolling = false }: Props) {
+export function HUD({
+  game,
+  onRoll,
+  onMuteToggle,
+  muted,
+  onQuit,
+  rolling = false,
+  lastDiceValue = null,
+  hint = null,
+  extraRoll = false,
+  diceSpin,
+  turnTimerRemainingMs = null,
+}: Props) {
   const currentSeat = game.config.seats[game.currentSeatIndex]!;
   const canRoll = game.phase === 'waiting_roll' && !game.hardStopped && !rolling;
   const current = game.players.find((p) => p.seat === currentSeat)!;
+  const duration = game.config.durationMs ?? 1;
+  const clockFrac =
+    game.clockMsRemaining !== null ? Math.max(0, Math.min(1, game.clockMsRemaining / duration)) : 1;
+  const clockWarn = game.clockMsRemaining !== null && game.clockMsRemaining <= 30_000;
+  const timerFrac =
+    game.config.turnTimerEnabled && game.turnDeadlineMs && turnTimerRemainingMs !== null
+      ? Math.max(0, Math.min(1, turnTimerRemainingMs / game.turnDeadlineMs))
+      : null;
 
   return (
     <aside
@@ -36,55 +68,93 @@ export function HUD({ game, onRoll, onMuteToggle, muted, onQuit, rolling = false
           className="text-sm font-semibold uppercase tracking-wider"
           style={{ color: 'var(--muted)' }}
         >
-          {game.config.mode}
+          {titleCase(game.config.mode)}
         </p>
         <div className="flex gap-1">
-          <button
+          <motion.button
             type="button"
-            className="glass rounded-lg px-2 text-xs"
+            whileTap={{ scale: 0.96 }}
+            className="icon-btn glass rounded-lg px-2"
             onClick={onMuteToggle}
             data-testid="hud-mute"
+            aria-label={muted ? 'Unmute' : 'Mute'}
           >
-            {muted ? 'Muted' : 'SFX'}
-          </button>
-          <button
+            <IconSpeaker off={muted} />
+          </motion.button>
+          <motion.button
             type="button"
-            className="glass rounded-lg px-2 text-xs"
+            whileTap={{ scale: 0.96 }}
+            className="icon-btn glass rounded-lg px-2"
             onClick={onQuit}
             data-testid="quit-game"
+            aria-label="Quit"
           >
-            Quit
-          </button>
+            <IconLeave />
+          </motion.button>
         </div>
+      </div>
+
+      <div className="hud-dice flex flex-col items-center gap-2 py-1">
+        <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="turn-label">
+          {rolling
+            ? `${current.name} rolling…`
+            : current.isBot
+              ? `${current.name} thinking…`
+              : `${current.name}'s turn`}
+        </p>
+        <Dice
+          value={game.diceValue}
+          lastValue={lastDiceValue}
+          disabled={!canRoll || current.isBot}
+          onRoll={onRoll}
+          rolling={rolling}
+          spin={diceSpin}
+          hint={hint}
+          extraRoll={extraRoll && canRoll && !current.isBot}
+          timerFraction={timerFrac}
+        />
       </div>
 
       {game.config.mode === 'timed' && (
         <div
-          className="rounded-xl px-3 py-2 text-center text-2xl font-bold tabular-nums"
-          style={{ background: 'rgba(0,0,0,0.2)', fontFamily: 'var(--font-display)' }}
+          className="relative overflow-hidden rounded-xl px-3 py-2 text-center text-2xl font-bold tabular-nums"
+          style={{
+            background: 'rgba(0,0,0,0.2)',
+            fontFamily: 'var(--font-display)',
+            color: clockWarn ? 'var(--danger)' : undefined,
+          }}
           data-testid="game-clock"
         >
-          {formatMs(game.clockMsRemaining)}
+          <span
+            className="clock-deplete"
+            style={{ transform: `scaleX(${clockFrac})` }}
+            aria-hidden
+          />
+          <span className="relative">{formatMs(game.clockMsRemaining)}</span>
         </div>
       )}
 
       {game.winnerBannerSeat !== null && (
-        <div
+        <motion.div
           className="rounded-xl px-3 py-2 text-center text-sm font-semibold"
           style={{ background: 'var(--accent)', color: 'var(--bg0)' }}
           data-testid="winner-banner"
+          initial={{ y: -8, opacity: 0, scale: 0.96 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 22 }}
         >
           Winner: {game.players.find((p) => p.seat === game.winnerBannerSeat)?.name}
-        </div>
+        </motion.div>
       )}
 
       <div className="flex flex-col gap-2" data-testid="player-cards">
         {game.players.map((p) => {
           const active = p.seat === currentSeat && game.phase !== 'finished';
+          const thinking = active && current.isBot && !rolling;
           return (
             <div
               key={p.seat}
-              className={`player-card relative overflow-hidden rounded-xl px-3 py-2 seat-${p.color}`}
+              className={`player-card relative overflow-hidden rounded-xl px-3 py-1.5 seat-${p.color}`}
               style={{
                 background: active
                   ? `linear-gradient(90deg, color-mix(in oklab, var(--seat) 40%, transparent), transparent)`
@@ -109,6 +179,13 @@ export function HUD({ game, onRoll, onMuteToggle, muted, onQuit, rolling = false
                       bot
                     </span>
                   )}
+                  {thinking && (
+                    <span className="thinking-dots" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  )}
                   {game.config.mode === 'quick' && !p.hasCaptured && (
                     <span
                       className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
@@ -124,8 +201,21 @@ export function HUD({ game, onRoll, onMuteToggle, muted, onQuit, rolling = false
                     {p.score}
                   </span>
                 ) : (
-                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                    {p.pawns.filter((x) => x.progress === 56).length}/4
+                  <span className="flex items-center gap-0.5" aria-label={`${p.pawns.filter((x) => x.progress === 56).length} of 4 home`}>
+                    {p.pawns.map((pawn) => {
+                      const home = pawn.progress === 56;
+                      return (
+                        <span
+                          key={pawn.id}
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{
+                            background: home ? `var(--${p.color})` : 'transparent',
+                            boxShadow: `inset 0 0 0 1px var(--${p.color})`,
+                            opacity: home ? 1 : 0.35,
+                          }}
+                        />
+                      );
+                    })}
                   </span>
                 )}
               </div>
@@ -139,29 +229,13 @@ export function HUD({ game, onRoll, onMuteToggle, muted, onQuit, rolling = false
         })}
       </div>
 
-      <div className="hud-dice mt-auto flex flex-col items-center gap-2 py-2">
-        <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="turn-label">
-          {rolling
-            ? `${current.name} rolling…`
-            : current.isBot
-              ? `${current.name} thinking…`
-              : `${current.name}'s turn`}
-        </p>
-        <Dice
-          value={game.diceValue}
-          disabled={!canRoll || current.isBot}
-          onRoll={onRoll}
-          rolling={rolling}
-        />
-      </div>
-
       <div
-        className="hud-log max-h-28 overflow-y-auto rounded-xl p-2 text-xs"
+        className="hud-log mt-auto max-h-16 overflow-hidden rounded-xl p-2 text-xs"
         style={{ background: 'rgba(0,0,0,0.2)' }}
         data-testid="move-log"
       >
         {game.events
-          .slice(-12)
+          .slice(-3)
           .reverse()
           .map((e, i) => {
             const name =

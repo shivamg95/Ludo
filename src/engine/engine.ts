@@ -69,7 +69,8 @@ export function createGame(config: GameConfig): GameState {
     events: [],
     rankings: [],
     clockMsRemaining: isTimed ? durationMs : null,
-    turnDeadlineMs: null,
+    turnDeadlineMs:
+      isTimed && (config.turnTimerEnabled ?? true) ? (config.turnTimerMs ?? 20_000) : null,
     gameStartMs: null,
     hardStopped: false,
     winnerBannerSeat: null,

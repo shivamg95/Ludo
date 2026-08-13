@@ -3,7 +3,8 @@ import { useAppStore } from '../store/gameStore';
 import { BoardSvg } from './BoardSvg';
 import { PawnLayer } from './PawnLayer';
 import { HUD } from './HUD';
-import { playSfx } from '../audio/sfx';
+import { playSfx, resumeAudio } from '../audio/sfx';
+import { prefersReducedMotion } from '../ui/motion';
 
 export function GameScreen() {
   const game = useAppStore((s) => s.game);
@@ -16,13 +17,19 @@ export function GameScreen() {
   const goSetup = useAppStore((s) => s.goSetup);
   const tickClock = useAppStore((s) => s.tickClock);
   const setAnnouncement = useAppStore((s) => s.setAnnouncement);
+  const lastDiceValue = useAppStore((s) => s.lastDiceValue);
+  const hint = useAppStore((s) => s.hint);
+  const extraRoll = useAppStore((s) => s.extraRoll);
+  const diceSpin = useAppStore((s) => s.diceSpin);
+  const turnTimerRemainingMs = useAppStore((s) => s.turnTimerRemainingMs);
+  const noteHopFinished = useAppStore((s) => s.noteHopFinished);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [shake, setShake] = useState(false);
   const autoMoveKey = useRef<string | null>(null);
+  const hopCompleteRef = useRef(noteHopFinished);
+  hopCompleteRef.current = noteHopFinished;
 
-  const reducedMotion =
-    typeof window !== 'undefined' &&
-    (window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
-      document.documentElement.dataset.reducedMotion === 'true');
+  const reducedMotion = prefersReducedMotion();
 
   useEffect(() => {
     if (!game || game.config.mode !== 'timed') return;
@@ -44,7 +51,6 @@ export function GameScreen() {
 
   const currentSeat = game ? game.config.seats[game.currentSeatIndex]! : null;
 
-  /** Move a pawn only if it belongs to the current human player. */
   const playMove = useCallback(
     (id: string) => {
       const g = useAppStore.getState().game;
@@ -59,22 +65,32 @@ export function GameScreen() {
 
       selectPawn(id);
       setPreviewId(id);
-      if (!useAppStore.getState().muted) {
-        playSfx(move.captures.length ? 'capture' : move.enteredHome ? 'home' : 'move');
-      }
       movePawn(id);
       setAnnouncement('Moved pawn');
-      setPreviewId(null);
       return true;
     },
     [selectPawn, movePawn, setAnnouncement],
   );
 
-  const onSelect = useCallback((id: string) => {
-    playMove(id);
-  }, [playMove]);
+  const onSelect = useCallback(
+    (id: string) => {
+      const g = useAppStore.getState().game;
+      if (!g || g.phase !== 'waiting_move') return;
+      const move = g.legalMoves.find((m) => m.pawnId === id);
+      if (!move) return;
+      const seat = g.config.seats[g.currentSeatIndex]!;
+      const player = g.players.find((p) => p.seat === seat);
+      if (!player || player.isBot) return;
+      if (g.legalMoves.length > 1 && g.selectedPawnId !== id) {
+        selectPawn(id);
+        setPreviewId(id);
+        return;
+      }
+      playMove(id);
+    },
+    [playMove, selectPawn],
+  );
 
-  // Auto-play the current human's single forced choice only — never other seats / bots.
   useEffect(() => {
     if (!game || rolling) return;
     if (game.phase !== 'waiting_move') {
@@ -102,7 +118,6 @@ export function GameScreen() {
 
       const liveSeat = g.config.seats[g.currentSeatIndex]!;
       const livePlayer = g.players.find((p) => p.seat === liveSeat);
-      // Seat must still be the same human who earned this forced move
       if (!livePlayer || livePlayer.isBot) return;
       if (liveSeat !== seat) return;
       if (g.legalMoves[0]!.pawnId !== only.pawnId) return;
@@ -115,6 +130,7 @@ export function GameScreen() {
   }, [game, rolling, reducedMotion, playMove]);
 
   const onRoll = useCallback(() => {
+    resumeAudio();
     if (!muted) playSfx('roll');
     roll();
   }, [roll, muted]);
@@ -127,8 +143,11 @@ export function GameScreen() {
         if (game.phase === 'waiting_roll') onRoll();
         else if (game.phase === 'waiting_move' && game.selectedPawnId) {
           playMove(game.selectedPawnId);
-        } else if (game.phase === 'waiting_move' && game.legalMoves[0]) {
+        } else if (game.phase === 'waiting_move' && game.legalMoves.length === 1 && game.legalMoves[0]) {
           playMove(game.legalMoves[0].pawnId);
+        } else if (game.phase === 'waiting_move' && game.legalMoves[0]) {
+          selectPawn(game.legalMoves[0].pawnId);
+          setPreviewId(game.legalMoves[0].pawnId);
         }
       }
       if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -147,6 +166,30 @@ export function GameScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, [game, onRoll, playMove, selectPawn]);
 
+  const onHopsScheduled = useCallback((ms: number) => {
+    const { animating, rolling } = useAppStore.getState();
+    if (ms <= 0 && animating && !rolling) {
+      hopCompleteRef.current();
+    }
+  }, []);
+
+  const onHopComplete = useCallback(() => {
+    setPreviewId(null);
+    if (useAppStore.getState().animating) hopCompleteRef.current();
+  }, []);
+
+  const onImpact = useCallback(() => {
+    setShake(true);
+    window.setTimeout(() => setShake(false), 180);
+  }, []);
+
+  const onHopSfx = useCallback(
+    (kind: 'land' | 'capture' | 'home') => {
+      if (!useAppStore.getState().muted) playSfx(kind);
+    },
+    [],
+  );
+
   if (!game) return null;
 
   return (
@@ -159,7 +202,10 @@ export function GameScreen() {
       }}
       data-testid="game-screen"
     >
-      <div className="board-wrap relative mx-auto shrink-0" data-testid="board-wrap">
+      <div
+        className={`board-wrap relative mx-auto shrink-0 ${shake ? 'board-shake' : ''}`}
+        data-testid="board-wrap"
+      >
         <BoardSvg
           lockedSeats={lockedSeats}
           activeSeats={game.config.seats}
@@ -170,8 +216,13 @@ export function GameScreen() {
           movableIds={movableIds}
           selectedId={game.selectedPawnId}
           onSelect={onSelect}
+          onDest={playMove}
           reducedMotion={reducedMotion}
           previewPawnId={previewId ?? game.selectedPawnId}
+          onHopsScheduled={onHopsScheduled}
+          onHopComplete={onHopComplete}
+          onImpact={onImpact}
+          onHopSfx={onHopSfx}
         />
       </div>
       <HUD
@@ -181,6 +232,11 @@ export function GameScreen() {
         onMuteToggle={() => setMuted(!muted)}
         onQuit={goSetup}
         rolling={rolling}
+        lastDiceValue={lastDiceValue}
+        hint={hint}
+        extraRoll={extraRoll}
+        diceSpin={diceSpin}
+        turnTimerRemainingMs={turnTimerRemainingMs}
       />
     </div>
   );

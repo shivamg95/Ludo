@@ -10,6 +10,8 @@ import {
   getMoveForPawn,
   isPlayerFinished,
   formatProgress,
+  formatEvent,
+  hopWaypoints,
   boardOccupancy,
   autoplay,
   pass,
@@ -73,6 +75,43 @@ describe('engine entry + selectors', () => {
     s = { ...s, diceValue: 1, phase: 'waiting_move' as const, legalMoves: [] };
     expect(getMovablePawnIds(s)).toEqual([]);
     expect(getMoveForPawn(s, 'x')).toBeUndefined();
+  });
+
+  it('hopWaypoints and formatEvent cover path helpers', () => {
+    expect(hopWaypoints(0, -1, 0)).toHaveLength(1);
+    expect(hopWaypoints(0, -1, 4)).toHaveLength(1);
+    expect(hopWaypoints(0, 3, -1)).toEqual([]);
+    expect(hopWaypoints(0, 48, 2, true).length).toBeGreaterThan(2);
+    expect(hopWaypoints(0, 2, 5).length).toBe(3);
+    expect(hopWaypoints(0, 5, 2).length).toBe(3);
+
+    expect(formatEvent('roll', { value: 4 }, 'Red')).toBe('Red rolled 4');
+    expect(formatEvent('move', { captures: ['a'] }, 'Red')).toContain('captured');
+    expect(formatEvent('move', { to: 56 }, 'Red')).toContain('home');
+    expect(formatEvent('move', { from: -1 }, 'Red')).toContain('entered');
+    expect(formatEvent('move', { from: 2, to: 5 }, 'Red')).toBe('Red moved');
+    expect(formatEvent('three_sixes_forfeit', undefined, 'Red')).toContain('forfeited');
+    expect(formatEvent('pass', undefined, 'Red')).toContain('passed');
+    expect(formatEvent('unknown', undefined, 'Red')).toContain('unknown');
+  });
+
+  it('reduce default, timed turn deadline, and empty autoplay move', () => {
+    let s = createGame({
+      mode: 'timed',
+      seats: [0, 2],
+      playerNames: { 0: 'R', 2: 'Y' },
+      bots: { 0: false, 2: false },
+      seed: 1,
+      durationMs: 60_000,
+      turnTimerEnabled: true,
+    });
+    expect(s.turnDeadlineMs).toBe(20_000);
+    s = reduce(s, { type: 'PASS' });
+    expect(s.turnDeadlineMs).toBe(20_000);
+    s = { ...s, phase: 'waiting_move', legalMoves: [] };
+    s = autoplay(s);
+    expect(s.phase).toBe('waiting_roll');
+    expect(reduce(s, { type: 'NOPE' } as never)).toEqual(s);
   });
 
   it('autoplay and pass advance the turn', () => {
