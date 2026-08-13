@@ -1,25 +1,181 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { useAppStore } from '../store/gameStore';
+import { peekSavedGame, useAppStore, type SavedGameSummary } from '../store/gameStore';
 import { seatsForPlayerCount, SEATS } from '../engine/board';
 import type { GameMode } from '../engine/types';
+import { SEAT_RAMP, ACCENT } from '../theme/seats';
+import { DUR, SPRING, useReducedMotion } from '../ui/motion';
+import { PlayIcon, SoundOffIcon, SoundOnIcon } from './icons';
 
 const MODES: { id: GameMode; title: string; blurb: string }[] = [
   { id: 'classic', title: 'Classic', blurb: 'Race all four home. Play on for places.' },
   { id: 'timed', title: 'X-Minute', blurb: 'Score under the clock. Respawn and keep scoring.' },
-  { id: 'quick', title: 'Quick', blurb: 'Cut to unlock home. First pawn home wins.' },
+  { id: 'quick', title: 'Quick', blurb: 'Cut to unlock home. First token home wins.' },
 ];
 
 const DURATION_PRESETS = [1, 2, 3, 5, 10];
+
+/** Looping mini-animations that show what each mode actually feels like. */
+function ModeArt({ mode, active }: { mode: GameMode; active: boolean }) {
+  const reduced = useReducedMotion();
+  const loop = (duration: number) =>
+    reduced || !active
+      ? { duration: 0 }
+      : { duration, repeat: Infinity, ease: 'easeInOut' as const };
+
+  if (mode === 'classic') {
+    return (
+      <svg viewBox="0 0 120 64" className="mode-art" aria-hidden>
+        <rect x="4" y="26" width="112" height="12" rx="6" fill="rgba(150,190,255,0.08)" />
+        {(['red', 'green', 'yellow', 'blue'] as const).map((c, i) => (
+          <motion.circle
+            key={c}
+            cy={32}
+            r={5}
+            fill={SEAT_RAMP[c].core}
+            initial={false}
+            animate={reduced || !active ? { cx: 20 + i * 24 } : { cx: [12 + i * 8, 100 - i * 6] }}
+            transition={loop(2.6 + i * 0.35)}
+          />
+        ))}
+        <path d="M108 18 v28" stroke={ACCENT.core} strokeWidth="2" strokeDasharray="3 3" />
+      </svg>
+    );
+  }
+
+  if (mode === 'timed') {
+    return (
+      <svg viewBox="0 0 120 64" className="mode-art" aria-hidden>
+        <circle cx="60" cy="32" r="20" fill="none" stroke="rgba(150,190,255,0.16)" strokeWidth="4" />
+        <motion.circle
+          cx="60"
+          cy="32"
+          r="20"
+          fill="none"
+          stroke={ACCENT.core}
+          strokeWidth="4"
+          strokeLinecap="round"
+          transform="rotate(-90 60 32)"
+          initial={false}
+          animate={reduced || !active ? { pathLength: 0.7 } : { pathLength: [1, 0.06, 1] }}
+          transition={loop(3.4)}
+        />
+        <motion.text
+          x="60"
+          y="37"
+          textAnchor="middle"
+          fontSize="14"
+          fontWeight="700"
+          fill={ACCENT.core}
+          fontFamily="var(--font-display)"
+          initial={false}
+          animate={reduced || !active ? { opacity: 1 } : { opacity: [1, 0.45, 1] }}
+          transition={loop(1.7)}
+        >
+          3:00
+        </motion.text>
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 120 64" className="mode-art" aria-hidden>
+      <motion.circle
+        cy={32}
+        r={7}
+        fill={SEAT_RAMP.red.core}
+        initial={false}
+        animate={reduced || !active ? { cx: 34 } : { cx: [22, 62, 62, 22] }}
+        transition={loop(2.4)}
+      />
+      <motion.circle
+        cx={62}
+        cy={32}
+        r={7}
+        fill={SEAT_RAMP.yellow.core}
+        initial={false}
+        animate={reduced || !active ? { opacity: 1, scale: 1 } : { opacity: [1, 1, 0, 1], scale: [1, 1, 1.6, 1] }}
+        transition={loop(2.4)}
+        style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+      />
+      <motion.circle
+        cx={62}
+        cy={32}
+        r={7}
+        fill="none"
+        stroke={ACCENT.gold}
+        strokeWidth={2}
+        initial={false}
+        animate={reduced || !active ? { opacity: 0 } : { opacity: [0, 0, 0.9, 0], r: [7, 7, 20, 7] }}
+        transition={loop(2.4)}
+      />
+      <path d="M92 20 h14 v24 h-14 z" fill="none" stroke={ACCENT.core} strokeWidth="2" rx="2" />
+      <motion.path
+        d="M96 20 v-5 a3 3 0 0 1 6 0 v5"
+        fill="none"
+        stroke={ACCENT.core}
+        strokeWidth="2"
+        initial={false}
+        animate={reduced || !active ? { opacity: 1 } : { opacity: [1, 1, 0.2, 1] }}
+        transition={loop(2.4)}
+      />
+    </svg>
+  );
+}
+
+function Stepper({
+  label,
+  value,
+  onDec,
+  onInc,
+  decTestId,
+  incTestId,
+  valueTestId,
+  decLabel,
+  incLabel,
+}: {
+  label: string;
+  value: number;
+  onDec: () => void;
+  onInc: () => void;
+  decTestId: string;
+  incTestId: string;
+  valueTestId: string;
+  decLabel: string;
+  incLabel: string;
+}) {
+  return (
+    <div className="stepper-row">
+      <span className="stepper-label">{label}</span>
+      <div className="stepper">
+        <button type="button" className="stepper-btn" onClick={onDec} data-testid={decTestId} aria-label={decLabel}>
+          −
+        </button>
+        <span className="stepper-value" data-testid={valueTestId}>
+          {value}
+        </span>
+        <button type="button" className="stepper-btn" onClick={onInc} data-testid={incTestId} aria-label={incLabel}>
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function SetupScreen() {
   const setup = useAppStore((s) => s.setup);
   const setSetup = useAppStore((s) => s.setSetup);
   const startGame = useAppStore((s) => s.startGame);
+  const resumeIfSaved = useAppStore((s) => s.resumeIfSaved);
+  const clearSave = useAppStore((s) => s.clearSave);
   const theme = useAppStore((s) => s.theme);
   const setTheme = useAppStore((s) => s.setTheme);
   const muted = useAppStore((s) => s.muted);
   const setMuted = useAppStore((s) => s.setMuted);
+  const reduced = useReducedMotion();
+
+  const [saved, setSaved] = useState<SavedGameSummary | null>(null);
+  useEffect(() => setSaved(peekSavedGame()), []);
 
   const seats = useMemo(() => seatsForPlayerCount(setup.totalPlayers), [setup.totalPlayers]);
   const bots = setup.totalPlayers - setup.humanCount;
@@ -31,94 +187,124 @@ export function SetupScreen() {
         ? 'Need at least 1 human'
         : null;
 
-  return (
-    <div
-      className="h-full w-full overflow-y-auto px-4 py-6 sm:px-8"
-      style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}
-      data-testid="setup-screen"
-    >
-      <header className="mx-auto flex max-w-5xl items-start justify-between gap-4">
-        <div>
-          <p
-            className="text-5xl font-bold tracking-tight sm:text-6xl"
-            style={{ fontFamily: 'var(--font-display)' }}
-            data-testid="brand"
-          >
-            Ludo
-          </p>
-          <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-            Classic · Timed · Quick
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="glass rounded-xl px-3 text-sm"
-            onClick={() => setMuted(!muted)}
-            aria-label={muted ? 'Unmute' : 'Mute'}
-            data-testid="mute-toggle"
-          >
-            {muted ? 'Muted' : 'Sound'}
-          </button>
-          <button
-            type="button"
-            className="glass rounded-xl px-3 text-sm"
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            data-testid="theme-toggle"
-          >
-            {theme === 'dark' ? 'Light' : 'Dark'}
-          </button>
-        </div>
-      </header>
+  const rise = (delay: number) =>
+    reduced
+      ? { initial: false as const, animate: { opacity: 1, y: 0 } }
+      : {
+          initial: { opacity: 0, y: 18 },
+          animate: { opacity: 1, y: 0 },
+          transition: { ...SPRING.ui, delay },
+        };
 
-      <main className="mx-auto mt-8 grid max-w-5xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
-            Mode
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-3">
+  return (
+    <div className="setup-screen" data-testid="setup-screen">
+      <div className="setup-inner">
+        <motion.header className="setup-hero" {...rise(0)}>
+          <div className="setup-hero-mark">
+            <h1 className="brand" data-testid="brand">
+              Ludo
+            </h1>
+            <p className="brand-sub">Classic · X-Minute · Quick</p>
+          </div>
+          <div className="setup-hero-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setMuted(!muted)}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+              data-testid="mute-toggle"
+            >
+              {muted ? <SoundOffIcon /> : <SoundOnIcon />}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              data-testid="theme-toggle"
+            >
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+          </div>
+        </motion.header>
+
+        {saved && (
+          <motion.div className="resume-card panel" {...rise(0.04)} data-testid="resume-card">
+            <div className="resume-copy">
+              <p className="resume-title">Continue game</p>
+              <p className="resume-detail">
+                {saved.mode} · {saved.playerCount} players · {saved.tokensHome} home ·{' '}
+                {saved.turnOf}&apos;s turn
+              </p>
+            </div>
+            <div className="resume-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  clearSave();
+                  setSaved(null);
+                }}
+                data-testid="discard-save"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => resumeIfSaved()}
+                data-testid="resume-game"
+              >
+                <PlayIcon />
+                Resume
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        <motion.section className="setup-section" {...rise(0.08)}>
+          <h2 className="setup-heading">Mode</h2>
+          <div className="mode-grid">
             {MODES.map((m) => {
               const active = setup.mode === m.id;
               return (
                 <motion.button
                   key={m.id}
                   type="button"
-                  whileHover={{ y: -2 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={reduced ? undefined : { y: -3 }}
+                  whileTap={reduced ? undefined : { scale: 0.985 }}
+                  transition={SPRING.tight}
                   onClick={() => setSetup({ mode: m.id })}
-                  className={`glass rounded-2xl p-4 text-left transition ${active ? 'ring-2 ring-[var(--accent)]' : ''}`}
+                  className="mode-card"
+                  data-active={active ? 'true' : 'false'}
                   data-testid={`mode-${m.id}`}
                   aria-pressed={active}
                 >
-                  <div
-                    className="mb-3 h-16 rounded-xl"
-                    style={{
-                      background:
-                        m.id === 'classic'
-                          ? 'linear-gradient(135deg, var(--red), var(--yellow))'
-                          : m.id === 'timed'
-                            ? 'linear-gradient(135deg, var(--blue), var(--accent))'
-                            : 'linear-gradient(135deg, var(--green), var(--yellow))',
-                    }}
-                  />
-                  <p className="text-lg font-semibold">{m.title}</p>
-                  <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-                    {m.blurb}
-                  </p>
+                  <span className="mode-art-frame">
+                    <ModeArt mode={m.id} active={active} />
+                  </span>
+                  <span className="mode-title">{m.title}</span>
+                  <span className="mode-blurb">{m.blurb}</span>
                 </motion.button>
               );
             })}
           </div>
 
           {setup.mode === 'timed' && (
-            <div className="glass mt-4 rounded-2xl p-4" data-testid="duration-panel">
-              <p className="mb-2 text-sm font-semibold">Duration</p>
-              <div className="flex flex-wrap gap-2">
+            <motion.div
+              className="duration-panel"
+              data-testid="duration-panel"
+              initial={reduced ? false : { opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: DUR.base, ease: 'easeOut' }}
+            >
+              <p className="setup-heading">Duration</p>
+              <div className="chip-row">
                 {DURATION_PRESETS.map((m) => (
                   <button
                     key={m}
                     type="button"
-                    className={`rounded-xl px-3 py-2 text-sm ${setup.durationMin === m ? 'bg-[var(--accent)] text-[var(--bg0)]' : 'glass'}`}
+                    className="chip"
+                    data-active={setup.durationMin === m ? 'true' : 'false'}
                     onClick={() => setSetup({ durationMin: m })}
                     data-testid={`duration-${m}`}
                   >
@@ -126,128 +312,92 @@ export function SetupScreen() {
                   </button>
                 ))}
               </div>
-              <label className="mt-3 flex items-center gap-2 text-sm">
-                Custom (1–30)
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={setup.durationMin}
-                  onChange={(e) =>
-                    setSetup({ durationMin: Math.max(1, Math.min(30, Number(e.target.value) || 1)) })
-                  }
-                  className="glass w-20 rounded-lg px-2 py-1"
-                  data-testid="duration-custom"
-                />
-              </label>
-              <label className="mt-3 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={setup.turnTimerEnabled}
-                  onChange={(e) => setSetup({ turnTimerEnabled: e.target.checked })}
-                  data-testid="turn-timer-toggle"
-                />
-                20s turn timer
-              </label>
-            </div>
+              <div className="setup-field-row">
+                <label className="setup-field">
+                  <span>Custom (1–30)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={setup.durationMin}
+                    onChange={(e) =>
+                      setSetup({
+                        durationMin: Math.max(1, Math.min(30, Number(e.target.value) || 1)),
+                      })
+                    }
+                    className="text-input w-20"
+                    data-testid="duration-custom"
+                  />
+                </label>
+                <label className="setup-toggle">
+                  <input
+                    type="checkbox"
+                    checked={setup.turnTimerEnabled}
+                    onChange={(e) => setSetup({ turnTimerEnabled: e.target.checked })}
+                    data-testid="turn-timer-toggle"
+                  />
+                  20s turn timer
+                </label>
+              </div>
+            </motion.div>
           )}
-        </section>
+        </motion.section>
 
-        <section className="glass rounded-2xl p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
-            Players
-          </h2>
+        <motion.section className="setup-section players-panel panel" {...rise(0.12)}>
+          <h2 className="setup-heading">Players</h2>
 
-          <div className="flex items-center justify-between gap-3">
-            <span>Total</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="glass rounded-xl px-3"
-                onClick={() => setSetup({ totalPlayers: Math.max(2, setup.totalPlayers - 1) })}
-                data-testid="total-dec"
-                aria-label="Fewer players"
-              >
-                −
-              </button>
-              <span className="w-8 text-center text-lg font-semibold" data-testid="total-players">
-                {setup.totalPlayers}
-              </span>
-              <button
-                type="button"
-                className="glass rounded-xl px-3"
-                onClick={() => setSetup({ totalPlayers: Math.min(4, setup.totalPlayers + 1) })}
-                data-testid="total-inc"
-                aria-label="More players"
-              >
-                +
-              </button>
-            </div>
+          <div className="stepper-grid">
+            <Stepper
+              label="Total"
+              value={setup.totalPlayers}
+              onDec={() => setSetup({ totalPlayers: Math.max(2, setup.totalPlayers - 1) })}
+              onInc={() => setSetup({ totalPlayers: Math.min(4, setup.totalPlayers + 1) })}
+              decTestId="total-dec"
+              incTestId="total-inc"
+              valueTestId="total-players"
+              decLabel="Fewer players"
+              incLabel="More players"
+            />
+            <Stepper
+              label="Humans"
+              value={setup.humanCount}
+              onDec={() => setSetup({ humanCount: setup.humanCount - 1 })}
+              onInc={() => setSetup({ humanCount: setup.humanCount + 1 })}
+              decTestId="human-dec"
+              incTestId="human-inc"
+              valueTestId="human-count"
+              decLabel="Fewer humans"
+              incLabel="More humans"
+            />
           </div>
-
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <span>Humans</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="glass rounded-xl px-3"
-                onClick={() => setSetup({ humanCount: setup.humanCount - 1 })}
-                data-testid="human-dec"
-                aria-label="Fewer humans"
-              >
-                −
-              </button>
-              <span className="w-8 text-center text-lg font-semibold" data-testid="human-count">
-                {setup.humanCount}
-              </span>
-              <button
-                type="button"
-                className="glass rounded-xl px-3"
-                onClick={() => setSetup({ humanCount: setup.humanCount + 1 })}
-                data-testid="human-inc"
-                aria-label="More humans"
-              >
-                +
-              </button>
-            </div>
-          </div>
-          <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }} data-testid="bot-count">
-            Bots: {bots}
+          <p className="bot-count" data-testid="bot-count">
+            {bots === 0 ? 'All human' : `${bots} bot${bots > 1 ? 's' : ''}`}
           </p>
 
-          <ul className="mt-5 space-y-3">
+          <ul className="seat-list">
             {seats.map((seat, i) => {
               const color = SEATS[seat]!.color;
               const isBot = i >= setup.humanCount;
               return (
-                <li key={seat} className={`flex items-center gap-3 seat-${color}`}>
-                  <span
-                    className="h-8 w-8 rounded-full"
-                    style={{ background: `var(--${color})` }}
-                    aria-hidden
-                  />
+                <motion.li key={seat} className={`seat-row seat-${color}`} layout={!reduced}>
+                  <span className="seat-token" aria-hidden />
                   <input
-                    className="glass flex-1 rounded-xl px-3 py-2 text-sm"
+                    className="text-input flex-1"
                     value={setup.names[seat] ?? color}
-                    onChange={(e) =>
-                      setSetup({ names: { ...setup.names, [seat]: e.target.value } })
-                    }
+                    onChange={(e) => setSetup({ names: { ...setup.names, [seat]: e.target.value } })}
                     disabled={isBot}
                     data-testid={`name-${color}`}
                     aria-label={`${color} name`}
                   />
-                  <span className="text-xs uppercase" style={{ color: 'var(--muted)' }}>
-                    {isBot ? 'Bot' : 'Human'}
-                  </span>
-                </li>
+                  <span className="seat-kind">{isBot ? 'Bot' : 'You'}</span>
+                </motion.li>
               );
             })}
           </ul>
 
           <button
             type="button"
-            className="mt-6 w-full rounded-2xl py-3 text-base font-semibold disabled:opacity-40"
-            style={{ background: 'var(--accent)', color: 'var(--bg0)' }}
+            className="btn btn-primary start-btn"
             disabled={!!disabledReason}
             onClick={() => startGame()}
             data-testid="start-game"
@@ -255,12 +405,12 @@ export function SetupScreen() {
             Start game
           </button>
           {disabledReason && (
-            <p className="mt-2 text-center text-sm" style={{ color: 'var(--danger)' }} data-testid="start-blocked">
+            <p className="start-blocked" data-testid="start-blocked">
               {disabledReason}
             </p>
           )}
-        </section>
-      </main>
+        </motion.section>
+      </div>
     </div>
   );
 }

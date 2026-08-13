@@ -3,6 +3,7 @@ import { createGame, reduce } from '../engine/engine';
 import type { GameConfig, GameState, GameMode } from '../engine/types';
 import { seatsForPlayerCount, SEATS } from '../engine/board';
 import { chooseMove } from '../bot/chooseMove';
+import { playSfx } from '../audio/sfx';
 
 export type Screen = 'setup' | 'game' | 'results';
 
@@ -23,6 +24,7 @@ interface AppState {
   theme: 'dark' | 'light';
   botDelayMs: number;
   animating: boolean;
+  rolling: boolean;
   announcement: string;
   resumed: boolean;
 
@@ -73,6 +75,38 @@ function buildConfig(setup: SetupDraft, seed?: number): GameConfig {
   };
 }
 
+export interface SavedGameSummary {
+  mode: GameMode;
+  playerCount: number;
+  /** Tokens already home across every seat. */
+  tokensHome: number;
+  turnOf: string;
+}
+
+/** Reads the saved game without restoring it, so Setup can offer to continue. */
+export function peekSavedGame(): SavedGameSummary | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as { game: GameState; screen: Screen };
+    const game = data.game;
+    if (!game || data.screen !== 'game' || game.phase === 'finished') return null;
+
+    const seat = game.config.seats[game.currentSeatIndex];
+    return {
+      mode: game.config.mode,
+      playerCount: game.players.length,
+      tokensHome: game.players.reduce(
+        (n, p) => n + p.pawns.filter((x) => x.progress === 56).length,
+        0,
+      ),
+      turnOf: game.players.find((p) => p.seat === seat)?.name ?? 'Player',
+    };
+  } catch {
+    return null;
+  }
+}
+
 function loadSettings(): Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'>> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -113,8 +147,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   game: null,
   muted: settings.muted ?? false,
   theme: settings.theme ?? 'dark',
-  botDelayMs: settings.botDelayMs ?? 650,
+  botDelayMs: settings.botDelayMs && settings.botDelayMs > 0 ? settings.botDelayMs : 650,
   animating: false,
+  rolling: false,
   announcement: '',
   resumed: false,
 
@@ -141,7 +176,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       config.mode === 'timed'
         ? { ...game, gameStartMs: performance.now() }
         : game;
-    set({ game: withStart, screen: 'game', resumed: false, announcement: 'Game started' });
+    // Tests may leave botDelay at 0 in memory; restore a human-playable pace for normal starts
+    const botDelayMs = get().botDelayMs <= 0 ? 650 : get().botDelayMs;
+    set({
+      game: withStart,
+      screen: 'game',
+      resumed: false,
+      announcement: 'Game started',
+      botDelayMs,
+      rolling: false,
+      animating: false,
+    });
+    document.body.dataset.animIdle = 'true';
     persistGame(withStart, 'game');
     // Kick bot if first player is bot
     queueMicrotask(() => get().runBotTurn());
@@ -167,7 +213,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     queueMicrotask(() => get().runBotTurn());
   },
 
-  roll: () => get().dispatch({ type: 'ROLL' }),
+  roll: () => {
+    const reduced =
+      typeof document !== 'undefined' &&
+      document.documentElement.dataset.reducedMotion === 'true';
+    if (reduced || get().rolling) {
+      if (!get().rolling) get().dispatch({ type: 'ROLL' });
+      return;
+    }
+    set({ rolling: true, animating: true });
+    document.body.dataset.animIdle = 'false';
+    window.setTimeout(() => {
+      get().dispatch({ type: 'ROLL' });
+      set({ rolling: false, animating: false });
+      document.body.dataset.animIdle = 'true';
+    }, 520);
+  },
 
   movePawn: (pawnId) => get().dispatch({ type: 'MOVE', pawnId }),
 
@@ -228,13 +289,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   runBotTurn: () => {
-    const { game, botDelayMs, animating } = get();
-    if (!game || game.phase === 'finished' || animating) return;
+    const { game, botDelayMs, animating, rolling } = get();
+    if (!game || game.phase === 'finished' || animating || rolling) return;
     const seat = game.config.seats[game.currentSeatIndex]!;
     const player = game.players.find((p) => p.seat === seat)!;
     if (!player.isBot) return;
 
-    const act = () => {
+    const reduced =
+      typeof document !== 'undefined' &&
+      document.documentElement.dataset.reducedMotion === 'true';
+
+    // Instant path for tests (botDelay 0) — no animation
+    if (botDelayMs <= 0) {
+      if (game.phase === 'waiting_roll') {
+        get().dispatch({ type: 'ROLL' });
+        return;
+      }
+      if (game.phase === 'waiting_move') {
+        const move = chooseMove(game);
+        if (move) get().dispatch({ type: 'MOVE', pawnId: move.pawnId });
+        else get().dispatch({ type: 'PASS' });
+      }
+      return;
+    }
+
+    // Thinking pause, then act
+    window.setTimeout(() => {
       const g = get().game;
       if (!g || g.phase === 'finished') return;
       const s = g.config.seats[g.currentSeatIndex]!;
@@ -242,21 +322,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!p.isBot) return;
 
       if (g.phase === 'waiting_roll') {
-        get().dispatch({ type: 'ROLL' });
+        // Show dice tumble, reveal face, then allow the move step
+        if (reduced) {
+          get().dispatch({ type: 'ROLL' });
+          return;
+        }
+        if (!get().muted) playSfx('roll');
+        set({ rolling: true, animating: true });
+        document.body.dataset.animIdle = 'false';
+        window.setTimeout(() => {
+          get().dispatch({ type: 'ROLL' });
+          // Face is visible now; hold before moving so the roll can be read
+          set({ rolling: false });
+          window.setTimeout(() => {
+            set({ animating: false });
+            document.body.dataset.animIdle = 'true';
+            get().runBotTurn();
+          }, 650);
+        }, 520);
         return;
       }
+
       if (g.phase === 'waiting_move') {
         const move = chooseMove(g);
         if (move) get().dispatch({ type: 'MOVE', pawnId: move.pawnId });
         else get().dispatch({ type: 'PASS' });
       }
-    };
-
-    if (botDelayMs <= 0) {
-      act();
-    } else {
-      window.setTimeout(act, botDelayMs);
-    }
+    }, botDelayMs);
   },
 }));
 
@@ -272,7 +364,10 @@ export function installTestHook() {
       startGame({ ...buildConfig(setup, seed), seed });
     },
     getState: () => useAppStore.getState().game,
-    setBotDelay: (ms: number) => useAppStore.getState().setBotDelay(ms),
+    setBotDelay: (ms: number) => {
+      // Test-only: do not persist — otherwise botDelay 0 leaks into real play
+      useAppStore.setState({ botDelayMs: ms });
+    },
     advanceClock: (ms: number) => {
       const g = useAppStore.getState().game;
       if (!g) return;

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b --noEmit && vite build",
+    "build:pages": "VITE_BASE=/Ludo/ npm run build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "oxlint src e2e && node scripts/check-engine-imports.mjs",
@@ -17,6 +18,8 @@
     "verify": "npm run typecheck && npm run lint && npm run test:unit -- --coverage && npm run test:e2e"
   },
   "dependencies": {
+    "@fontsource-variable/sora": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "motion": "^12.23.12",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

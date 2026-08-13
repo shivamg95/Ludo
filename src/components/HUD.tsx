@@ -1,5 +1,11 @@
-import type { GameState } from '../engine/types';
+import { AnimatePresence, motion } from 'motion/react';
+import type { GameState, Player } from '../engine/types';
+import { SEATS } from '../engine/board';
+import { formatEvent } from '../engine/selectors';
 import { Dice } from './Dice';
+import { lastRollValue } from '../ui/useGameEvents';
+import { SPRING, DUR } from '../ui/motion';
+import { LogIcon, QuitIcon, SoundOffIcon, SoundOnIcon } from './icons';
 
 function formatMs(ms: number | null): string {
   if (ms === null) return '';
@@ -9,140 +15,240 @@ function formatMs(ms: number | null): string {
   return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
-interface Props {
+/**
+ * One player's status. On the wide layout these sit in the board quadrant that
+ * matches the player's yard, so the HUD is spatially meaningful.
+ */
+export function SeatPod({
+  player,
+  game,
+  active,
+  compact = false,
+}: {
+  player: Player;
   game: GameState;
-  onRoll: () => void;
-  onMuteToggle: () => void;
-  muted: boolean;
-  onQuit: () => void;
-}
-
-export function HUD({ game, onRoll, onMuteToggle, muted, onQuit }: Props) {
-  const currentSeat = game.config.seats[game.currentSeatIndex]!;
-  const canRoll = game.phase === 'waiting_roll' && !game.hardStopped;
-  const current = game.players.find((p) => p.seat === currentSeat)!;
+  active: boolean;
+  compact?: boolean;
+}) {
+  const home = player.pawns.filter((p) => p.progress === 56).length;
 
   return (
-    <aside
-      className="glass flex w-full flex-col gap-3 rounded-2xl p-3 sm:p-4 lg:w-72"
-      data-testid="hud"
-      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+    <motion.div
+      className={`seat-pod seat-${player.color} ${compact ? 'seat-pod-compact' : ''}`}
+      data-testid={`player-card-${player.color}`}
+      data-active={active ? 'true' : 'false'}
+      // No `layout` here: the far corners rotate their pod 180deg, and layout
+      // projection cannot measure through a rotated ancestor.
+      initial={false}
+      animate={{ opacity: active ? 1 : 0.72 }}
+      transition={SPRING.ui}
     >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
-          {game.config.mode}
-        </p>
-        <div className="flex gap-1">
-          <button type="button" className="glass rounded-lg px-2 text-xs" onClick={onMuteToggle} data-testid="hud-mute">
-            {muted ? 'Muted' : 'SFX'}
-          </button>
-          <button type="button" className="glass rounded-lg px-2 text-xs" onClick={onQuit} data-testid="quit-game">
-            Quit
-          </button>
-        </div>
+      {active && <span className="seat-pod-glow" aria-hidden />}
+      <div className="seat-pod-head">
+        <span className="seat-pod-chip" aria-hidden />
+        <span className="seat-pod-name">{player.name}</span>
+        {player.isBot && <span className="seat-pod-tag">bot</span>}
       </div>
 
-      {game.config.mode === 'timed' && (
-        <div
-          className="rounded-xl px-3 py-2 text-center text-2xl font-bold tabular-nums"
-          style={{ background: 'rgba(0,0,0,0.2)', fontFamily: 'var(--font-display)' }}
-          data-testid="game-clock"
-        >
-          {formatMs(game.clockMsRemaining)}
-        </div>
+      <div className="seat-pod-stats">
+        {game.config.mode === 'timed' ? (
+          <span className="seat-pod-score" data-testid={`score-${player.color}`}>
+            {player.score}
+          </span>
+        ) : (
+          <span className="seat-pod-progress">
+            <span className="seat-pod-progress-value">{home}</span>
+            <span className="seat-pod-progress-total">/4</span>
+          </span>
+        )}
+        {!compact && (
+          <span className="seat-pod-pips" aria-hidden>
+            {player.pawns.map((p) => (
+              <span
+                key={p.id}
+                className="seat-pod-pip"
+                data-state={p.progress === 56 ? 'home' : p.progress < 0 ? 'yard' : 'track'}
+              />
+            ))}
+          </span>
+        )}
+      </div>
+
+      {game.config.mode === 'quick' && !player.hasCaptured && (
+        <span className="seat-pod-badge" data-testid={`cut-needed-${player.color}`}>
+          Cut needed
+        </span>
       )}
-
-      {game.winnerBannerSeat !== null && (
-        <div
-          className="rounded-xl px-3 py-2 text-center text-sm font-semibold"
-          style={{ background: 'var(--accent)', color: 'var(--bg0)' }}
-          data-testid="winner-banner"
-        >
-          Winner: {game.players.find((p) => p.seat === game.winnerBannerSeat)?.name}
-        </div>
+      {player.finishedRank !== null && (
+        <span className="seat-pod-badge seat-pod-badge-done">Finished #{player.finishedRank}</span>
       )}
+    </motion.div>
+  );
+}
 
-      <div className="flex flex-col gap-2" data-testid="player-cards">
-        {game.players.map((p) => {
-          const active = p.seat === currentSeat && game.phase !== 'finished';
-          return (
-            <div
-              key={p.seat}
-              className={`relative overflow-hidden rounded-xl px-3 py-2 seat-${p.color}`}
-              style={{
-                background: active
-                  ? `linear-gradient(90deg, color-mix(in oklab, var(--seat) 35%, transparent), transparent)`
-                  : 'rgba(255,255,255,0.03)',
-                boxShadow: active ? `0 0 0 1px var(--seat), 0 0 18px color-mix(in oklab, var(--seat) 40%, transparent)` : undefined,
-              }}
-              data-testid={`player-card-${p.color}`}
-              data-active={active ? 'true' : 'false'}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full" style={{ background: `var(--${p.color})` }} />
-                  <span className="text-sm font-semibold">{p.name}</span>
-                  {p.isBot && (
-                    <span className="text-[10px] uppercase" style={{ color: 'var(--muted)' }}>
-                      bot
-                    </span>
-                  )}
-                  {game.config.mode === 'quick' && !p.hasCaptured && (
-                    <span
-                      className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
-                      style={{ background: 'rgba(0,0,0,0.35)' }}
-                      data-testid={`cut-needed-${p.color}`}
-                    >
-                      Cut needed
-                    </span>
-                  )}
-                </div>
-                {game.config.mode === 'timed' ? (
-                  <span className="text-sm tabular-nums" data-testid={`score-${p.color}`}>
-                    {p.score}
-                  </span>
-                ) : (
-                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                    {p.pawns.filter((x) => x.progress === 56).length}/4
-                  </span>
-                )}
-              </div>
-              {p.finishedRank !== null && (
-                <p className="mt-1 text-xs" style={{ color: 'var(--accent)' }}>
-                  Finished #{p.finishedRank}
-                </p>
-              )}
-            </div>
-          );
-        })}
+/**
+ * Turn label plus the hero die. `flipped` rotates only the copy, for the corners
+ * whose player is sitting across the board.
+ */
+export function TurnDice({
+  game,
+  onRoll,
+  rolling,
+  flipped = false,
+}: {
+  game: GameState;
+  onRoll: () => void;
+  rolling: boolean;
+  flipped?: boolean;
+}) {
+  const currentSeat = game.config.seats[game.currentSeatIndex]!;
+  const current = game.players.find((p) => p.seat === currentSeat)!;
+  const canRoll = game.phase === 'waiting_roll' && !game.hardStopped && !rolling;
+
+  return (
+    <div className="turn-dice" data-flip={flipped ? 'true' : 'false'}>
+      <p className="turn-label" data-testid="turn-label">
+        {rolling
+          ? `${current.name} rolling…`
+          : current.isBot
+            ? `${current.name} thinking…`
+            : `${current.name}'s turn`}
+      </p>
+      <Dice
+        value={game.diceValue}
+        face={lastRollValue(game)}
+        disabled={!canRoll || current.isBot}
+        onRoll={onRoll}
+        rolling={rolling}
+        seatColor={current.color}
+        waitingLabel={current.isBot ? 'Bot playing' : 'Pick a token'}
+      />
+    </div>
+  );
+}
+
+export function GameTopBar({
+  game,
+  muted,
+  onMuteToggle,
+  onQuit,
+  onToggleLog,
+  logOpen,
+}: {
+  game: GameState;
+  muted: boolean;
+  onMuteToggle: () => void;
+  onQuit: () => void;
+  onToggleLog: () => void;
+  logOpen: boolean;
+}) {
+  return (
+    <header className="game-topbar" data-testid="hud">
+      <div className="game-topbar-left">
+        <span className="mode-chip">{game.config.mode}</span>
+        {game.config.mode === 'timed' && (
+          <span className="game-clock" data-testid="game-clock">
+            {formatMs(game.clockMsRemaining)}
+          </span>
+        )}
       </div>
 
-      <div className="mt-auto flex flex-col items-center gap-2 py-2">
-        <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="turn-label">
-          {current.isBot ? `${current.name} thinking…` : `${current.name}'s turn`}
-        </p>
-        <Dice
-          value={game.diceValue}
-          disabled={!canRoll || current.isBot}
-          onRoll={onRoll}
-          rolling={false}
-        />
+      <div className="game-topbar-right">
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onToggleLog}
+          data-testid="toggle-log"
+          aria-expanded={logOpen}
+          aria-label={logOpen ? 'Hide move log' : 'Show move log'}
+        >
+          <LogIcon />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onMuteToggle}
+          data-testid="hud-mute"
+          aria-label={muted ? 'Unmute sound effects' : 'Mute sound effects'}
+        >
+          {muted ? <SoundOffIcon /> : <SoundOnIcon />}
+        </button>
+        <button
+          type="button"
+          className="icon-btn icon-btn-danger"
+          onClick={onQuit}
+          data-testid="quit-game"
+          aria-label="Quit game"
+        >
+          <QuitIcon />
+        </button>
       </div>
+    </header>
+  );
+}
 
-      <div className="max-h-28 overflow-y-auto rounded-xl p-2 text-xs" style={{ background: 'rgba(0,0,0,0.2)' }} data-testid="move-log">
-        {game.events
-          .slice(-12)
-          .reverse()
-          .map((e, i) => (
-            <div key={`${e.atCursor}-${i}`} style={{ color: 'var(--muted)' }}>
-              {e.type}
-              {e.detail?.value != null ? ` ${e.detail.value}` : ''}
-              {Array.isArray(e.detail?.captures) && (e.detail.captures as string[]).length
-                ? ' (capture)'
-                : ''}
-            </div>
-          ))}
-      </div>
-    </aside>
+/** Collapsible history. Replaces the 16px sliver that never showed anything. */
+export function MoveLogSheet({
+  game,
+  open,
+  onClose,
+}: {
+  game: GameState;
+  open: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.aside
+          className="log-sheet panel"
+          data-testid="move-log"
+          initial={{ opacity: 0, y: 16, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 16, scale: 0.97 }}
+          transition={{ duration: DUR.base, ease: 'easeOut' }}
+        >
+          <div className="log-sheet-head">
+            <span>Move log</span>
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close move log">
+              ✕
+            </button>
+          </div>
+          <div className="log-sheet-body">
+            {game.events.length === 0 && <p className="log-empty">No moves yet.</p>}
+            {game.events
+              .slice(-40)
+              .reverse()
+              .map((e, i) => {
+                const seat = SEATS[e.seat];
+                const name =
+                  game.players.find((p) => p.seat === e.seat)?.name ?? seat?.color ?? 'Player';
+                return (
+                  <div key={`${e.atCursor}-${i}`} className={`log-line seat-${seat?.color ?? 'red'}`}>
+                    <span className="log-dot" aria-hidden />
+                    {formatEvent(e.type, e.detail, name)}
+                  </div>
+                );
+              })}
+          </div>
+        </motion.aside>
+      )}
+    </AnimatePresence>
+  );
+}
+
+export function WinnerBanner({ game }: { game: GameState }) {
+  if (game.winnerBannerSeat === null) return null;
+  const winner = game.players.find((p) => p.seat === game.winnerBannerSeat);
+  return (
+    <motion.div
+      className={`winner-banner seat-${winner?.color ?? 'red'}`}
+      data-testid="winner-banner"
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={SPRING.ui}
+    >
+      {winner?.name} wins
+    </motion.div>
   );
 }
