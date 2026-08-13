@@ -1,5 +1,7 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import '@fontsource-variable/sora';
+import '@fontsource-variable/space-grotesk';
 import './index.css';
 import { App } from './App';
 import { installTestHook, parseUrlParams, useAppStore } from './store/gameStore';

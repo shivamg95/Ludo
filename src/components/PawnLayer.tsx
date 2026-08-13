@@ -1,29 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { GameState, Move, SeatColor } from '../engine/types';
 import { getPawnCell, hopWaypoints, getYardSlotCell } from '../engine/selectors';
 import { ringIndexOf, cellOf } from '../engine/board';
-
-const COLOR: Record<SeatColor, string> = {
-  red: '#e23d3d',
-  green: '#2f9e5c',
-  yellow: '#e2b93d',
-  blue: '#3d7ee2',
-};
-
-const COLOR_MID: Record<SeatColor, string> = {
-  red: '#c42929',
-  green: '#268a4d',
-  yellow: '#c9a028',
-  blue: '#2f6bc9',
-};
-
-const COLOR_DEEP: Record<SeatColor, string> = {
-  red: '#7a1515',
-  green: '#124d2a',
-  yellow: '#7a5c10',
-  blue: '#163f7a',
-};
+import { SEAT_RAMP, ACCENT } from '../theme/seats';
+import { SPRING } from '../ui/motion';
+import { buildWalkHop, buildEnterHop, buildReturnHop, type Hop } from '../ui/hop';
 
 interface Props {
   game: GameState;
@@ -34,108 +16,188 @@ interface Props {
   previewPawnId?: string | null;
 }
 
-type Hop = { cx: number[]; cy: number[]; duration: number };
+/** Vertical gap between tokens sharing a cell — enough to read the one beneath. */
+const STACK_STEP = 0.24;
 
-/** Classic Ludo token: shadow + base + body + crown + specular. */
-function Token3D({
+/** Progress value meaning a token has finished. */
+const HOME = 56;
+
+/**
+ * Finished tokens dock inside their own hub wedge instead of piling on the exact
+ * centre point. Each seat's wedge points at (7.5, 7.5) from one side.
+ */
+function homeDock(seat: number, slot: number): { x: number; y: number } {
+  // Sit just inside the wedge, where it has darkened, so the token still reads
+  const depth = 0.78;
+  const spread = (slot - 1.5) * 0.28;
+  switch (seat) {
+    case 0:
+      return { x: 7.5 - depth, y: 7.5 + spread };
+    case 1:
+      return { x: 7.5 + spread, y: 7.5 - depth };
+    case 2:
+      return { x: 7.5 + depth, y: 7.5 + spread };
+    default:
+      return { x: 7.5 + spread, y: 7.5 + depth };
+  }
+}
+
+type Burst = {
+  key: string;
+  x: number;
+  y: number;
+  kind: 'capture' | 'home';
+  color: SeatColor;
+};
+
+/**
+ * Arcade token: a dark obsidian puck with an emissive seat-coloured rim and a
+ * lit core. Drawn at the origin — the parent group positions it.
+ */
+function Token({
   color,
-  cx,
-  cy,
   r,
   selected,
   movable,
+  doomed,
 }: {
   color: SeatColor;
-  cx: number;
-  cy: number;
   r: number;
   selected: boolean;
   movable: boolean;
+  doomed: boolean;
 }) {
-  const baseR = r * 0.92;
-  const bodyR = r * 0.78;
-  const crownR = r * 0.34;
-  const bodyCy = cy - r * 0.12;
-  const crownCy = cy - r * 0.55;
+  const ramp = SEAT_RAMP[color];
+  const halfW = 0.72 * r;
+  const ry = 0.28 * r;
+  const topY = -0.3 * r;
+  const botY = 0.26 * r;
+  const lit = selected || movable;
+  const edge = lit ? 0.9 : 0.6;
 
   return (
     <g style={{ pointerEvents: 'none' }}>
+      {/* Ground halo — only lit tokens spill light */}
+      {lit && (
+        <ellipse
+          cx={0}
+          cy={botY + ry * 0.5}
+          rx={halfW * 1.7}
+          ry={ry * 1.9}
+          fill={`url(#token-halo-${color})`}
+          opacity={selected ? 1 : 0.75}
+        />
+      )}
+
       {/* Contact shadow */}
       <ellipse
-        cx={cx + 0.02}
-        cy={cy + r * 0.55}
-        rx={baseR * 0.95}
-        ry={baseR * 0.28}
-        fill="rgba(0,0,0,0.35)"
+        cx={0.03 * r}
+        cy={botY + ry * 0.7}
+        rx={halfW * 0.98}
+        ry={ry * 0.66}
+        fill="rgba(0,0,0,0.6)"
         filter="url(#pawn-blur)"
       />
-      {/* Base disc rim */}
+
+      {/* Base disc */}
+      <ellipse cx={0} cy={botY} rx={halfW} ry={ry} fill={ramp.deep} />
       <ellipse
-        cx={cx}
-        cy={cy + r * 0.28}
-        rx={baseR}
-        ry={baseR * 0.42}
-        fill={`url(#pawn-base-${color})`}
-        stroke={COLOR_DEEP[color]}
-        strokeWidth={0.035}
-      />
-      <ellipse
-        cx={cx}
-        cy={cy + r * 0.22}
-        rx={baseR * 0.72}
-        ry={baseR * 0.28}
-        fill={`url(#pawn-base-inner-${color})`}
-      />
-      {/* Body sphere */}
-      <circle
-        cx={cx}
-        cy={bodyCy}
-        r={bodyR}
-        fill={`url(#pawn-body-${color})`}
-        stroke={selected ? '#fff' : movable ? 'rgba(255,255,255,0.55)' : COLOR_DEEP[color]}
-        strokeWidth={selected ? 0.09 : movable ? 0.07 : 0.04}
-      />
-      {/* Equator band for volume */}
-      <ellipse
-        cx={cx}
-        cy={bodyCy + bodyR * 0.15}
-        rx={bodyR * 0.86}
-        ry={bodyR * 0.22}
-        fill={`url(#pawn-band-${color})`}
-        opacity={0.55}
-      />
-      {/* Crown / head knob */}
-      <circle
-        cx={cx}
-        cy={crownCy}
-        r={crownR}
-        fill={`url(#pawn-crown-${color})`}
-        stroke={COLOR_DEEP[color]}
-        strokeWidth={0.03}
-      />
-      {/* Specular highlights */}
-      <ellipse
-        cx={cx - bodyR * 0.28}
-        cy={bodyCy - bodyR * 0.32}
-        rx={bodyR * 0.28}
-        ry={bodyR * 0.18}
-        fill="rgba(255,255,255,0.55)"
-      />
-      <circle
-        cx={cx - crownR * 0.25}
-        cy={crownCy - crownR * 0.28}
-        r={crownR * 0.28}
-        fill="rgba(255,255,255,0.65)"
-      />
-      {/* Rim light */}
-      <path
-        d={`M ${cx + bodyR * 0.55} ${bodyCy - bodyR * 0.55}
-            A ${bodyR} ${bodyR} 0 0 1 ${cx + bodyR * 0.7} ${bodyCy + bodyR * 0.2}`}
+        cx={0}
+        cy={botY}
+        rx={halfW}
+        ry={ry}
         fill="none"
-        stroke="rgba(255,255,255,0.28)"
-        strokeWidth={0.045}
-        strokeLinecap="round"
+        stroke={ramp.core}
+        strokeWidth={0.04}
+        opacity={edge}
       />
+
+      {/* Body wall */}
+      <rect
+        x={-halfW}
+        y={topY}
+        width={halfW * 2}
+        height={botY - topY}
+        fill={`url(#token-side-${color})`}
+      />
+
+      {/* Silhouette edges keep the token legible against a dark board */}
+      <path
+        d={`M ${-halfW} ${topY} L ${-halfW} ${botY} M ${halfW} ${topY} L ${halfW} ${botY}`}
+        stroke={ramp.core}
+        strokeWidth={0.04}
+        opacity={edge}
+        fill="none"
+      />
+
+      {/* Emissive waistband */}
+      <rect
+        x={-halfW}
+        y={topY + (botY - topY) * 0.58}
+        width={halfW * 2}
+        height={0.075 * r}
+        fill={ramp.core}
+        opacity={lit ? 1 : 0.7}
+      />
+
+      {/* Lit cap */}
+      <ellipse
+        cx={0}
+        cy={topY}
+        rx={halfW}
+        ry={ry}
+        fill={`url(#token-top-${color})`}
+        stroke={ramp.rim}
+        strokeWidth={lit ? 0.05 : 0.035}
+        strokeOpacity={lit ? 0.9 : 0.6}
+      />
+      <ellipse cx={0} cy={topY} rx={halfW * 0.5} ry={ry * 0.5} fill={ramp.core} opacity={0.95} />
+      <ellipse
+        cx={-halfW * 0.12}
+        cy={topY - ry * 0.16}
+        rx={halfW * 0.24}
+        ry={ry * 0.24}
+        fill="#fff"
+        opacity={selected ? 1 : 0.78}
+      />
+
+      {/* Specular down the left wall */}
+      <path
+        d={`M ${-halfW * 0.82} ${topY + ry * 0.5} L ${-halfW * 0.82} ${botY - ry * 0.3}`}
+        stroke="rgba(255,255,255,0.4)"
+        strokeWidth={0.05}
+        strokeLinecap="round"
+        fill="none"
+      />
+
+      {/* Selection collar */}
+      {selected && (
+        <ellipse
+          cx={0}
+          cy={botY}
+          rx={halfW * 1.3}
+          ry={ry * 1.3}
+          fill="none"
+          stroke="#fff"
+          strokeWidth={0.05}
+          opacity={0.9}
+        />
+      )}
+
+      {/* Danger ring — this token dies if the highlighted move is taken */}
+      {doomed && (
+        <ellipse
+          cx={0}
+          cy={botY}
+          rx={halfW * 1.42}
+          ry={ry * 1.42}
+          fill="none"
+          stroke={ACCENT.gold}
+          strokeWidth={0.06}
+          strokeDasharray="0.14 0.1"
+          opacity={0.95}
+        />
+      )}
     </g>
   );
 }
@@ -157,33 +219,44 @@ export function PawnLayer({
     return map;
   }, [game.players]);
 
-  const occupancy = useMemo(() => {
-    const map = new Map<string, string[]>();
+  /**
+   * Tokens sharing a cell stack upward with a count badge, rather than fanning
+   * out in a circle and bleeding into neighbouring cells.
+   */
+  const stacks = useMemo(() => {
+    const byCell = new Map<string, string[]>();
     for (const player of game.players) {
       for (const pawn of player.pawns) {
-        const slot = yardSlots.get(pawn.id);
-        const cell = getPawnCell(pawn.seat, pawn.progress, pawn.index, slot);
+        const cell = getPawnCell(pawn.seat, pawn.progress, pawn.index, yardSlots.get(pawn.id));
         const key = `${cell.row.toFixed(2)},${cell.col.toFixed(2)}`;
-        const list = map.get(key) ?? [];
+        const list = byCell.get(key) ?? [];
         list.push(pawn.id);
-        map.set(key, list);
+        byCell.set(key, list);
       }
+    }
+    const map = new Map<string, { index: number; count: number }>();
+    for (const ids of byCell.values()) {
+      ids.sort();
+      ids.forEach((id, index) => map.set(id, { index, count: ids.length }));
     }
     return map;
   }, [game.players, yardSlots]);
 
-  const fanOffset = (id: string, key: string) => {
-    const list = occupancy.get(key) ?? [id];
-    const i = list.indexOf(id);
-    const n = list.length;
-    if (n <= 1) return { dx: 0, dy: 0 };
-    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-    const radius = n === 2 ? 0.18 : 0.22;
-    return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius };
-  };
+  /** Docking slot per finished token, in arrival order. */
+  const homeSlots = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const player of game.players) {
+      let slot = 0;
+      for (const pawn of player.pawns) {
+        if (pawn.progress === HOME) map.set(pawn.id, slot++);
+      }
+    }
+    return map;
+  }, [game.players]);
 
   const prevProgress = useRef(new Map<string, number>());
   const [hops, setHops] = useState<Record<string, Hop>>({});
+  const [bursts, setBursts] = useState<Burst[]>([]);
 
   const progressSig = game.players
     .map((p) => p.pawns.map((x) => `${x.id}:${x.progress}`).join(','))
@@ -191,6 +264,8 @@ export function PawnLayer({
 
   useEffect(() => {
     const nextHops: Record<string, Hop> = {};
+    const nextBursts: Burst[] = [];
+
     for (const player of game.players) {
       for (const pawn of player.pawns) {
         const prev = prevProgress.current.get(pawn.id);
@@ -204,53 +279,79 @@ export function PawnLayer({
         const toCell = getPawnCell(pawn.seat, pawn.progress, pawn.index, slot);
         const fromCell =
           prev < 0
-            ? getYardSlotCell(pawn.seat, yardSlots.get(pawn.id) ?? 0)
+            ? getYardSlotCell(pawn.seat, slot ?? 0)
             : getPawnCell(pawn.seat, prev, pawn.index, 0);
 
         prevProgress.current.set(pawn.id, pawn.progress);
-
         if (reducedMotion) continue;
 
-        if (pawn.progress < 0 && prev >= 0) {
-          const mid = {
-            row: (fromCell.row + toCell.row) / 2 - 1.2,
-            col: (fromCell.col + toCell.col) / 2,
-          };
-          nextHops[pawn.id] = {
-            cx: [fromCell.col + 0.5, mid.col + 0.5, toCell.col + 0.5],
-            cy: [fromCell.row + 0.5, mid.row + 0.5, toCell.row + 0.5],
-            duration: 0.55,
-          };
+        if (prev < 0 && pawn.progress >= 0) {
+          nextHops[pawn.id] = buildEnterHop(fromCell, toCell);
           continue;
         }
 
-        const wrapped = prev > 40 && pawn.progress < 20 && prev <= 50;
-        const waypoints = hopWaypoints(pawn.seat, prev, pawn.progress, wrapped);
-        if (waypoints.length === 0) continue;
+        // Knocked back to the yard — the impact happened where it stood
+        if (prev >= 0 && pawn.progress < 0) {
+          nextHops[pawn.id] = buildReturnHop(fromCell, toCell);
+          nextBursts.push({
+            key: `cap-${pawn.id}-${game.version}`,
+            x: fromCell.col + 0.5,
+            y: fromCell.row + 0.5,
+            kind: 'capture',
+            color: player.color,
+          });
+          continue;
+        }
 
-        nextHops[pawn.id] = {
-          cx: [fromCell.col + 0.5, ...waypoints.map((c) => c.col + 0.5)],
-          cy: [fromCell.row + 0.5, ...waypoints.map((c) => c.row + 0.5)],
-          duration: Math.min(0.9, 0.1 + waypoints.length * 0.09),
-        };
+        if (pawn.progress === HOME) {
+          const dock = homeDock(pawn.seat, homeSlots.get(pawn.id) ?? 0);
+          nextBursts.push({
+            key: `home-${pawn.id}-${game.version}`,
+            x: dock.x,
+            y: dock.y,
+            kind: 'home',
+            color: player.color,
+          });
+        }
+
+        const wrapped = prev > 40 && pawn.progress < 20 && prev <= 50;
+        const hop = buildWalkHop(fromCell, hopWaypoints(pawn.seat, prev, pawn.progress, wrapped));
+        if (hop) nextHops[pawn.id] = hop;
       }
     }
 
-    if (Object.keys(nextHops).length === 0) return;
+    if (Object.keys(nextHops).length === 0 && nextBursts.length === 0) return;
 
-    setHops((h) => ({ ...h, ...nextHops }));
-    const timers = Object.entries(nextHops).map(([id, hop]) =>
-      window.setTimeout(() => {
-        setHops((h) => {
-          const copy = { ...h };
-          delete copy[id];
-          return copy;
-        });
-      }, hop.duration * 1000 + 40),
-    );
+    const timers: number[] = [];
+
+    if (Object.keys(nextHops).length > 0) {
+      setHops((h) => ({ ...h, ...nextHops }));
+      for (const [id, hop] of Object.entries(nextHops)) {
+        timers.push(
+          window.setTimeout(() => {
+            setHops((h) => {
+              const copy = { ...h };
+              delete copy[id];
+              return copy;
+            });
+          }, hop.duration * 1000 + 40),
+        );
+      }
+    }
+
+    if (nextBursts.length > 0) {
+      setBursts((b) => [...b, ...nextBursts]);
+      const keys = new Set(nextBursts.map((b) => b.key));
+      timers.push(
+        window.setTimeout(() => {
+          setBursts((b) => b.filter((x) => !keys.has(x.key)));
+        }, 900),
+      );
+    }
+
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progressSig, reducedMotion, yardSlots]);
+  }, [progressSig, reducedMotion, yardSlots, homeSlots]);
 
   const previews = useMemo(() => {
     if (game.phase !== 'waiting_move') {
@@ -259,9 +360,7 @@ export function PawnLayer({
     return game.legalMoves.map((move) => {
       const pawn = game.players.flatMap((p) => p.pawns).find((p) => p.id === move.pawnId)!;
       const cell =
-        move.toProgress < 0
-          ? getYardSlotCell(pawn.seat, 0)
-          : cellOf(pawn.seat, move.toProgress)!;
+        move.toProgress < 0 ? getYardSlotCell(pawn.seat, 0) : cellOf(pawn.seat, move.toProgress)!;
       return {
         move,
         cell,
@@ -270,16 +369,55 @@ export function PawnLayer({
     });
   }, [game.phase, game.legalMoves, game.players, previewPawnId, selectedId]);
 
-  const allPawns = useMemo(
+  /** Tokens that the highlighted move would knock back to the yard. */
+  const doomedIds = useMemo(() => {
+    if (game.phase !== 'waiting_move') return new Set<string>();
+    const focus = previewPawnId ?? selectedId;
+    const relevant = focus
+      ? game.legalMoves.filter((m) => m.pawnId === focus)
+      : game.legalMoves;
+    return new Set(relevant.flatMap((m) => m.captures));
+  }, [game.phase, game.legalMoves, previewPawnId, selectedId]);
+
+  const placed = useMemo(
     () =>
-      game.players
-        .flatMap((player) => player.pawns.map((pawn) => ({ pawn, player })))
-        .sort((a, b) => {
-          const am = movableIds.has(a.pawn.id) ? 1 : 0;
-          const bm = movableIds.has(b.pawn.id) ? 1 : 0;
-          return am - bm;
+      game.players.flatMap((player) =>
+        player.pawns.map((pawn) => {
+          if (pawn.progress === HOME) {
+            const dock = homeDock(pawn.seat, homeSlots.get(pawn.id) ?? 0);
+            return {
+              pawn,
+              player,
+              stack: { index: 0, count: 1 },
+              home: true,
+              x: dock.x,
+              y: dock.y,
+            };
+          }
+          const stack = stacks.get(pawn.id) ?? { index: 0, count: 1 };
+          const cell = getPawnCell(pawn.seat, pawn.progress, pawn.index, yardSlots.get(pawn.id));
+          return {
+            pawn,
+            player,
+            stack,
+            home: false,
+            x: cell.col + 0.5,
+            y: cell.row + 0.5 - stack.index * STACK_STEP,
+          };
         }),
-    [game.players, movableIds],
+      ),
+    [game.players, stacks, yardSlots, homeSlots],
+  );
+
+  // Painter's order: higher on screen draws first so stacks occlude correctly
+  const drawOrder = useMemo(() => [...placed].sort((a, b) => a.y - b.y), [placed]);
+  // Hit targets live in their own pass so a movable token is never blocked
+  const hitOrder = useMemo(
+    () =>
+      [...placed].sort(
+        (a, b) => Number(movableIds.has(a.pawn.id)) - Number(movableIds.has(b.pawn.id)),
+      ),
+    [placed, movableIds],
   );
 
   return (
@@ -287,149 +425,234 @@ export function PawnLayer({
       <svg viewBox="0 0 15 15" className="h-full w-full overflow-visible">
         <defs>
           <filter id="pawn-blur" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="0.06" />
+            <feGaussianBlur stdDeviation="0.05" />
           </filter>
-          {(Object.keys(COLOR) as SeatColor[]).map((c) => (
-            <g key={c}>
-              <radialGradient id={`pawn-body-${c}`} cx="32%" cy="28%" r="72%">
-                <stop offset="0%" stopColor="#fff" stopOpacity="0.7" />
-                <stop offset="28%" stopColor={COLOR[c]} />
-                <stop offset="72%" stopColor={COLOR_MID[c]} />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
-              </radialGradient>
-              <radialGradient id={`pawn-crown-${c}`} cx="35%" cy="30%" r="70%">
-                <stop offset="0%" stopColor="#fff" stopOpacity="0.75" />
-                <stop offset="40%" stopColor={COLOR[c]} />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
-              </radialGradient>
-              <linearGradient id={`pawn-base-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor={COLOR[c]} />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+          {(Object.keys(SEAT_RAMP) as SeatColor[]).map((c) => (
+            <Fragment key={c}>
+              <linearGradient id={`token-side-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor={SEAT_RAMP[c].deep} />
+                <stop offset="45%" stopColor="#0a0f1a" />
+                <stop offset="100%" stopColor="#05080f" />
               </linearGradient>
-              <radialGradient id={`pawn-base-inner-${c}`} cx="50%" cy="40%" r="60%">
-                <stop offset="0%" stopColor={COLOR[c]} stopOpacity="0.9" />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+              <radialGradient id={`token-top-${c}`} cx="38%" cy="32%" r="72%">
+                <stop offset="0%" stopColor={SEAT_RAMP[c].rim} />
+                <stop offset="55%" stopColor={SEAT_RAMP[c].core} />
+                <stop offset="100%" stopColor={SEAT_RAMP[c].deep} />
               </radialGradient>
-              <linearGradient id={`pawn-band-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor={COLOR_DEEP[c]} stopOpacity="0" />
-                <stop offset="50%" stopColor={COLOR_DEEP[c]} stopOpacity="0.45" />
-                <stop offset="100%" stopColor={COLOR_DEEP[c]} stopOpacity="0" />
-              </linearGradient>
-            </g>
+              <radialGradient id={`token-halo-${c}`} cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={SEAT_RAMP[c].glow} stopOpacity="0.55" />
+                <stop offset="60%" stopColor={SEAT_RAMP[c].glow} stopOpacity="0.16" />
+                <stop offset="100%" stopColor={SEAT_RAMP[c].glow} stopOpacity="0" />
+              </radialGradient>
+            </Fragment>
           ))}
         </defs>
 
+        {/* Destination markers */}
         {previews.map(({ move, cell, strong }) => (
           <g key={`dest-${move.pawnId}`} data-testid={`dest-${move.pawnId}`}>
-            <circle
+            <motion.circle
               cx={cell.col + 0.5}
               cy={cell.row + 0.5}
-              r={strong ? 0.38 : 0.28}
+              r={strong ? 0.4 : 0.3}
               fill="none"
-              stroke={strong ? '#5ec2a0' : 'rgba(94,194,160,0.55)'}
-              strokeWidth={strong ? 0.1 : 0.06}
-              strokeDasharray={strong ? undefined : '0.12 0.1'}
-              opacity={strong ? 1 : 0.75}
+              stroke={ACCENT.core}
+              strokeWidth={strong ? 0.09 : 0.055}
+              strokeDasharray={strong ? undefined : '0.13 0.11'}
+              opacity={strong ? 1 : 0.6}
+              initial={false}
+              animate={reducedMotion || !strong ? { scale: 1 } : { scale: [1, 1.12, 1] }}
+              transition={
+                reducedMotion || !strong
+                  ? { duration: 0 }
+                  : { duration: 1.3, repeat: Infinity, ease: 'easeInOut' }
+              }
+              style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
             />
             {strong && (
-              <circle
-                cx={cell.col + 0.5}
-                cy={cell.row + 0.5}
-                r={0.14}
-                fill="rgba(94,194,160,0.45)"
-              />
+              <circle cx={cell.col + 0.5} cy={cell.row + 0.5} r={0.13} fill={ACCENT.core} />
             )}
           </g>
         ))}
 
-        {allPawns.map(({ pawn, player }) => {
-          const slot = yardSlots.get(pawn.id);
-          const cell = getPawnCell(pawn.seat, pawn.progress, pawn.index, slot);
-          const key = `${cell.row.toFixed(2)},${cell.col.toFixed(2)}`;
-          const { dx, dy } = fanOffset(pawn.id, key);
+        {/* Tokens */}
+        {drawOrder.map(({ pawn, player, stack, home, x, y }) => {
           const movable = movableIds.has(pawn.id);
           const selected = selectedId === pawn.id;
-          const cx = cell.col + 0.5 + dx;
-          const cy = cell.row + 0.5 + dy;
-          const rIdx = ringIndexOf(pawn.seat, pawn.progress);
+          const doomed = doomedIds.has(pawn.id);
           const hop = hops[pawn.id];
-          const visualR = movable ? 0.42 : 0.36;
+          const r = home ? 0.34 : movable ? 0.56 : 0.5;
+          const isStackTop = stack.count > 1 && stack.index === stack.count - 1;
 
-          const transition = reducedMotion
+          const positionAnimate = hop ? { x: hop.x, y: hop.y } : { x, y };
+          const positionTransition = reducedMotion
             ? { duration: 0 }
             : hop
-              ? {
-                  duration: hop.duration,
-                  ease: 'easeInOut' as const,
-                  times: hop.cx.map((_, i) => i / Math.max(1, hop.cx.length - 1)),
-                }
-              : { type: 'spring' as const, stiffness: 380, damping: 26 };
+              ? { duration: hop.duration, times: hop.times, ease: 'easeInOut' as const }
+              : SPRING.token;
+
+          const scaleAnimate = hop
+            ? { scaleY: hop.scaleY, scale: 1 }
+            : selected
+              ? { scale: 1.12, scaleY: 1 }
+              : movable
+                ? { scale: [1, 1.07, 1], scaleY: 1 }
+                : { scale: 1, scaleY: 1 };
+
+          const scaleTransition = reducedMotion
+            ? { duration: 0 }
+            : hop
+              ? { duration: hop.duration, times: hop.times, ease: 'easeInOut' as const }
+              : movable && !selected
+                ? { scale: { duration: 1.2, repeat: Infinity, ease: 'easeInOut' as const } }
+                : SPRING.tight;
 
           return (
-            <g key={pawn.id}>
-              {/* Invisible hit target — carries testids / a11y */}
-              <motion.circle
-                r={0.55}
-                fill="transparent"
-                className="pointer-events-auto cursor-pointer"
-                style={{ pointerEvents: 'auto', outline: 'none' }}
-                onPointerDown={(e) => {
-                  e.currentTarget.blur();
-                }}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onSelect(pawn.id);
-                }}
-                initial={false}
-                animate={hop ? { cx: hop.cx, cy: hop.cy } : { cx, cy }}
-                transition={transition}
-                data-testid={pawn.id}
-                data-progress={pawn.progress}
-                data-ring-index={rIdx !== null ? String(rIdx) : undefined}
-                role="button"
-                tabIndex={movable ? 0 : -1}
-                aria-label={`${player.color} pawn ${pawn.index + 1}`}
-              />
+            <motion.g
+              key={pawn.id}
+              initial={false}
+              animate={positionAnimate}
+              transition={positionTransition}
+            >
               <motion.g
                 initial={false}
-                animate={
-                  hop
-                    ? {
-                        x: hop.cx,
-                        y: hop.cy,
-                        scale: selected ? 1.1 : movable ? [1, 1.06, 1] : 1,
-                      }
-                    : {
-                        x: cx,
-                        y: cy,
-                        scale: selected ? 1.1 : movable ? [1, 1.06, 1] : 1,
-                      }
-                }
-                transition={
-                  reducedMotion
-                    ? { duration: 0 }
-                    : hop
-                      ? transition
-                      : movable
-                        ? {
-                            scale: { duration: 1.15, repeat: Infinity, ease: 'easeInOut' },
-                            x: { type: 'spring', stiffness: 380, damping: 26 },
-                            y: { type: 'spring', stiffness: 380, damping: 26 },
-                          }
-                        : transition
-                }
+                animate={scaleAnimate}
+                transition={scaleTransition}
                 style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
               >
-                <Token3D
+                <Token
                   color={player.color}
-                  cx={0}
-                  cy={0}
-                  r={visualR}
+                  r={r}
                   selected={selected}
                   movable={movable}
+                  doomed={doomed}
                 />
               </motion.g>
+              {isStackTop && (
+                <g style={{ pointerEvents: 'none' }}>
+                  <circle
+                    cx={0.32}
+                    cy={-0.3}
+                    r={0.19}
+                    fill="#05080f"
+                    stroke={SEAT_RAMP[player.color].core}
+                    strokeWidth={0.035}
+                  />
+                  <text
+                    x={0.32}
+                    y={-0.235}
+                    textAnchor="middle"
+                    fontSize={0.26}
+                    fontWeight={700}
+                    fill={SEAT_RAMP[player.color].rim}
+                    fontFamily="var(--font-body)"
+                  >
+                    {stack.count}
+                  </text>
+                </g>
+              )}
+            </motion.g>
+          );
+        })}
+
+        {/* Impact effects sit above tokens so a capture reads instantly */}
+        {bursts.map((burst) => {
+          const ramp = SEAT_RAMP[burst.color];
+          if (burst.kind === 'capture') {
+            return (
+              <g key={burst.key} style={{ pointerEvents: 'none' }}>
+                <motion.circle
+                  cx={burst.x}
+                  cy={burst.y}
+                  fill="none"
+                  stroke={ACCENT.gold}
+                  initial={{ r: 0.18, opacity: 0.95, strokeWidth: 0.14 }}
+                  animate={{ r: 1.5, opacity: 0, strokeWidth: 0.02 }}
+                  transition={{ duration: 0.62, ease: 'easeOut' }}
+                />
+                <motion.circle
+                  cx={burst.x}
+                  cy={burst.y}
+                  fill="none"
+                  stroke={ramp.core}
+                  initial={{ r: 0.1, opacity: 0.8, strokeWidth: 0.1 }}
+                  animate={{ r: 1.05, opacity: 0, strokeWidth: 0.02 }}
+                  transition={{ duration: 0.5, ease: 'easeOut', delay: 0.06 }}
+                />
+                <motion.circle
+                  cx={burst.x}
+                  cy={burst.y}
+                  fill="#fff"
+                  initial={{ r: 0.42, opacity: 0.85 }}
+                  animate={{ r: 0.08, opacity: 0 }}
+                  transition={{ duration: 0.28, ease: 'easeOut' }}
+                />
+              </g>
+            );
+          }
+          return (
+            <g key={burst.key} style={{ pointerEvents: 'none' }}>
+              <motion.circle
+                cx={burst.x}
+                cy={burst.y}
+                fill="none"
+                stroke={ramp.rim}
+                initial={{ r: 0.1, opacity: 1, strokeWidth: 0.12 }}
+                animate={{ r: 1.2, opacity: 0, strokeWidth: 0.02 }}
+                transition={{ duration: 0.7, ease: 'easeOut' }}
+              />
+              {[0, 60, 120, 180, 240, 300].map((angle) => (
+                <motion.line
+                  key={angle}
+                  x1={burst.x}
+                  y1={burst.y}
+                  x2={burst.x + Math.cos((angle * Math.PI) / 180) * 0.9}
+                  y2={burst.y + Math.sin((angle * Math.PI) / 180) * 0.9}
+                  stroke={ramp.core}
+                  strokeWidth={0.06}
+                  strokeLinecap="round"
+                  initial={{ opacity: 0.9, pathLength: 0 }}
+                  animate={{ opacity: 0, pathLength: 1 }}
+                  transition={{ duration: 0.6, ease: 'easeOut' }}
+                />
+              ))}
             </g>
+          );
+        })}
+
+        {/* Hit targets — separate pass so movable tokens are always reachable */}
+        {hitOrder.map(({ pawn, player, x, y }) => {
+          const movable = movableIds.has(pawn.id);
+          const hop = hops[pawn.id];
+          const rIdx = ringIndexOf(pawn.seat, pawn.progress);
+          return (
+            <motion.circle
+              key={`hit-${pawn.id}`}
+              r={0.55}
+              fill="transparent"
+              className="pointer-events-auto cursor-pointer"
+              style={{ pointerEvents: 'auto', outline: 'none' }}
+              onPointerDown={(e) => e.currentTarget.blur()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onSelect(pawn.id);
+              }}
+              initial={false}
+              animate={hop ? { cx: hop.x, cy: hop.y } : { cx: x, cy: y }}
+              transition={
+                reducedMotion
+                  ? { duration: 0 }
+                  : hop
+                    ? { duration: hop.duration, times: hop.times, ease: 'easeInOut' }
+                    : SPRING.token
+              }
+              data-testid={pawn.id}
+              data-progress={pawn.progress}
+              data-ring-index={rIdx !== null ? String(rIdx) : undefined}
+              role="button"
+              tabIndex={movable ? 0 : -1}
+              aria-label={`${player.color} pawn ${pawn.index + 1}`}
+            />
           );
         })}
       </svg>

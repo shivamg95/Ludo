@@ -75,6 +75,38 @@ function buildConfig(setup: SetupDraft, seed?: number): GameConfig {
   };
 }
 
+export interface SavedGameSummary {
+  mode: GameMode;
+  playerCount: number;
+  /** Tokens already home across every seat. */
+  tokensHome: number;
+  turnOf: string;
+}
+
+/** Reads the saved game without restoring it, so Setup can offer to continue. */
+export function peekSavedGame(): SavedGameSummary | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as { game: GameState; screen: Screen };
+    const game = data.game;
+    if (!game || data.screen !== 'game' || game.phase === 'finished') return null;
+
+    const seat = game.config.seats[game.currentSeatIndex];
+    return {
+      mode: game.config.mode,
+      playerCount: game.players.length,
+      tokensHome: game.players.reduce(
+        (n, p) => n + p.pawns.filter((x) => x.progress === 56).length,
+        0,
+      ),
+      turnOf: game.players.find((p) => p.seat === seat)?.name ?? 'Player',
+    };
+  } catch {
+    return null;
+  }
+}
+
 function loadSettings(): Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'>> {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);

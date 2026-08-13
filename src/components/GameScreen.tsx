@@ -1,9 +1,25 @@
 import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { motion, useAnimationControls } from 'motion/react';
 import { useAppStore } from '../store/gameStore';
 import { BoardSvg } from './BoardSvg';
 import { PawnLayer } from './PawnLayer';
-import { HUD } from './HUD';
-import { playSfx } from '../audio/sfx';
+import { GameTopBar, MoveLogSheet, SeatPod, TurnDice, WinnerBanner } from './HUD';
+import { playHopTicks, playSfx } from '../audio/sfx';
+import { useReducedMotion, BEAT, DUR, SPRING } from '../ui/motion';
+import { useEventStream, eventCaptures, eventReachedHome } from '../ui/useGameEvents';
+import { useWideLayout } from '../ui/useMediaQuery';
+import { EventFx } from '../ui/EventFx';
+
+/** Board quadrants, matching each seat's yard in engine/board. */
+const SEAT_CORNER: Record<number, 'tl' | 'tr' | 'br' | 'bl'> = {
+  0: 'tl',
+  1: 'tr',
+  2: 'br',
+  3: 'bl',
+};
+
+/** Corners whose player sits across the board and reads the screen upside-down. */
+const FAR_CORNERS = new Set(['tl', 'tr']);
 
 export function GameScreen() {
   const game = useAppStore((s) => s.game);
@@ -17,12 +33,63 @@ export function GameScreen() {
   const tickClock = useAppStore((s) => s.tickClock);
   const setAnnouncement = useAppStore((s) => s.setAnnouncement);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [logOpen, setLogOpen] = useState(false);
   const autoMoveKey = useRef<string | null>(null);
+  const boardControls = useAnimationControls();
 
-  const reducedMotion =
-    typeof window !== 'undefined' &&
-    (window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
-      document.documentElement.dataset.reducedMotion === 'true');
+  const reducedMotion = useReducedMotion();
+  const wide = useWideLayout();
+
+  /**
+   * A capture is the loudest thing that happens in Ludo — the board takes a hit.
+   * Driven from the engine's event log so bot captures land as hard as yours.
+   */
+  useEventStream(game, (events) => {
+    const muted = useAppStore.getState().muted;
+    events.forEach((event, i) => {
+      if (event.type === 'three_sixes_forfeit') {
+        if (!muted) playSfx('forfeit');
+        return;
+      }
+      if (event.type !== 'move') return;
+
+      if (eventCaptures(event).length > 0) {
+        if (!muted) playSfx('capture');
+        if (!reducedMotion) {
+          void boardControls.start({
+            x: [0, -7, 6, -4, 2, 0],
+            y: [0, 4, -3, 2, -1, 0],
+            transition: { duration: 0.42, ease: 'easeOut' },
+          });
+        }
+      } else if (eventReachedHome(event)) {
+        if (!muted) playSfx('home');
+      } else if (!muted) {
+        if (reducedMotion) {
+          // No hop to score — one blip stands in for the whole move
+          playSfx('move');
+        } else {
+          // One click per cell travelled, matched to the hop cadence
+          const from = Number(event.detail?.from ?? -1);
+          const to = Number(event.detail?.to ?? -1);
+          const steps = from < 0 ? 1 : Math.max(1, to - from);
+          playHopTicks(steps, DUR.hop * 1000);
+        }
+      }
+
+      // The engine advances the turn before we see this, so the same seat still
+      // waiting to roll means the move bought another go.
+      const isLast = i === events.length - 1;
+      if (isLast && !muted && game && game.phase === 'waiting_roll') {
+        if (game.config.seats[game.currentSeatIndex] === event.seat) playSfx('extra');
+      }
+    });
+  });
+
+  const finished = game?.phase === 'finished';
+  useEffect(() => {
+    if (finished && !useAppStore.getState().muted) playSfx('win');
+  }, [finished]);
 
   useEffect(() => {
     if (!game || game.config.mode !== 'timed') return;
@@ -59,9 +126,6 @@ export function GameScreen() {
 
       selectPawn(id);
       setPreviewId(id);
-      if (!useAppStore.getState().muted) {
-        playSfx(move.captures.length ? 'capture' : move.enteredHome ? 'home' : 'move');
-      }
       movePawn(id);
       setAnnouncement('Moved pawn');
       setPreviewId(null);
@@ -94,7 +158,7 @@ export function GameScreen() {
     if (autoMoveKey.current === key) return;
     autoMoveKey.current = key;
 
-    const delay = reducedMotion ? 50 : 350;
+    const delay = reducedMotion ? 50 : BEAT.autoMove;
     const t = window.setTimeout(() => {
       const g = useAppStore.getState().game;
       if (!g || g.phase !== 'waiting_move') return;
@@ -149,39 +213,118 @@ export function GameScreen() {
 
   if (!game) return null;
 
-  return (
-    <div
-      className="game-screen flex h-full w-full flex-col gap-3 p-3 lg:flex-row lg:items-center"
-      style={{
-        paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
-        paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
-        paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
-      }}
-      data-testid="game-screen"
-    >
-      <div className="board-wrap relative mx-auto shrink-0" data-testid="board-wrap">
-        <BoardSvg
-          lockedSeats={lockedSeats}
-          activeSeats={game.config.seats}
-          activeSeat={currentSeat}
-        />
-        <PawnLayer
-          game={game}
-          movableIds={movableIds}
-          selectedId={game.selectedPawnId}
-          onSelect={onSelect}
-          reducedMotion={reducedMotion}
-          previewPawnId={previewId ?? game.selectedPawnId}
-        />
-      </div>
-      <HUD
+  /** Seat -> board quadrant, so each pod sits beside the yard it describes. */
+  const podFor = (seat: number, compact = false) => {
+    const player = game.players.find((p) => p.seat === seat);
+    if (!player) return null;
+    return (
+      <SeatPod
+        key={seat}
+        player={player}
         game={game}
-        onRoll={onRoll}
+        active={player.seat === currentSeat && game.phase !== 'finished'}
+        compact={compact}
+      />
+    );
+  };
+
+  /**
+   * A player's corner of the table: their pod, plus the die itself while it is
+   * their turn. The die is the outermost element so it lands nearest the player
+   * it belongs to, and `data-corner` drives the 180deg flip for the far side.
+   */
+  const cornerFor = (seat: number) => {
+    const player = game.players.find((p) => p.seat === seat);
+    if (!player) return null;
+    const corner = SEAT_CORNER[seat]!;
+    const active = player.seat === currentSeat && game.phase !== 'finished';
+
+    return (
+      <div className={`corner-cell seat-${player.color}`} data-corner={corner}>
+        {/* The slot is always here, empty or not, so pods never shift as the
+            die moves on. It doubles as a stable anchor for the travel. */}
+        <div className="corner-die-slot">
+          {!active && <span className="corner-die-tray" aria-hidden="true" />}
+          {active && (
+            <motion.div
+              className="corner-die"
+              // Shared layout id: as the turn passes, the die unmounts from one
+              // corner and mounts in the next, and motion slides it across.
+              layoutId={reducedMotion ? undefined : 'turn-die'}
+              transition={SPRING.ui}
+            >
+              <TurnDice
+                game={game}
+                onRoll={onRoll}
+                rolling={rolling}
+                flipped={FAR_CORNERS.has(corner)}
+              />
+            </motion.div>
+          )}
+        </div>
+        <div className="corner-face">{podFor(seat)}</div>
+      </div>
+    );
+  };
+
+  const board = (
+    <motion.div
+      className="board-wrap relative shrink-0"
+      data-testid="board-wrap"
+      animate={boardControls}
+    >
+      <BoardSvg lockedSeats={lockedSeats} activeSeats={game.config.seats} activeSeat={currentSeat} />
+      <PawnLayer
+        game={game}
+        movableIds={movableIds}
+        selectedId={game.selectedPawnId}
+        onSelect={onSelect}
+        reducedMotion={reducedMotion}
+        previewPawnId={previewId ?? game.selectedPawnId}
+      />
+    </motion.div>
+  );
+
+  return (
+    <div className="game-screen" data-testid="game-screen">
+      <GameTopBar
+        game={game}
         muted={muted}
         onMuteToggle={() => setMuted(!muted)}
         onQuit={goSetup}
-        rolling={rolling}
+        onToggleLog={() => setLogOpen((v) => !v)}
+        logOpen={logOpen}
       />
+      <WinnerBanner game={game} />
+
+      {wide ? (
+        <div className="game-stage">
+          <div className="pod-rail">
+            <div className="pod-slot pod-slot-start">{cornerFor(0)}</div>
+            <div className="pod-slot" />
+            <div className="pod-slot pod-slot-end">{cornerFor(3)}</div>
+          </div>
+
+          {board}
+
+          <div className="pod-rail">
+            <div className="pod-slot pod-slot-start">{cornerFor(1)}</div>
+            <div className="pod-slot" />
+            <div className="pod-slot pod-slot-end">{cornerFor(2)}</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="pod-strip">{game.config.seats.map((seat) => podFor(seat, true))}</div>
+          <div className="game-stage game-stage-narrow">{board}</div>
+          <div className="action-bar">
+            <TurnDice game={game} onRoll={onRoll} rolling={rolling} />
+          </div>
+        </>
+      )}
+
+      <MoveLogSheet game={game} open={logOpen} onClose={() => setLogOpen(false)} />
+      <EventFx game={game} />
     </div>
   );
 }
