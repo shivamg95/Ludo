@@ -11,11 +11,18 @@ const COLOR: Record<SeatColor, string> = {
   blue: '#3d7ee2',
 };
 
+const COLOR_MID: Record<SeatColor, string> = {
+  red: '#c42929',
+  green: '#268a4d',
+  yellow: '#c9a028',
+  blue: '#2f6bc9',
+};
+
 const COLOR_DEEP: Record<SeatColor, string> = {
-  red: '#a01f1f',
-  green: '#1a6b3a',
-  yellow: '#a07a18',
-  blue: '#1f4fa0',
+  red: '#7a1515',
+  green: '#124d2a',
+  yellow: '#7a5c10',
+  blue: '#163f7a',
 };
 
 interface Props {
@@ -28,6 +35,110 @@ interface Props {
 }
 
 type Hop = { cx: number[]; cy: number[]; duration: number };
+
+/** Classic Ludo token: shadow + base + body + crown + specular. */
+function Token3D({
+  color,
+  cx,
+  cy,
+  r,
+  selected,
+  movable,
+}: {
+  color: SeatColor;
+  cx: number;
+  cy: number;
+  r: number;
+  selected: boolean;
+  movable: boolean;
+}) {
+  const baseR = r * 0.92;
+  const bodyR = r * 0.78;
+  const crownR = r * 0.34;
+  const bodyCy = cy - r * 0.12;
+  const crownCy = cy - r * 0.55;
+
+  return (
+    <g style={{ pointerEvents: 'none' }}>
+      {/* Contact shadow */}
+      <ellipse
+        cx={cx + 0.02}
+        cy={cy + r * 0.55}
+        rx={baseR * 0.95}
+        ry={baseR * 0.28}
+        fill="rgba(0,0,0,0.35)"
+        filter="url(#pawn-blur)"
+      />
+      {/* Base disc rim */}
+      <ellipse
+        cx={cx}
+        cy={cy + r * 0.28}
+        rx={baseR}
+        ry={baseR * 0.42}
+        fill={`url(#pawn-base-${color})`}
+        stroke={COLOR_DEEP[color]}
+        strokeWidth={0.035}
+      />
+      <ellipse
+        cx={cx}
+        cy={cy + r * 0.22}
+        rx={baseR * 0.72}
+        ry={baseR * 0.28}
+        fill={`url(#pawn-base-inner-${color})`}
+      />
+      {/* Body sphere */}
+      <circle
+        cx={cx}
+        cy={bodyCy}
+        r={bodyR}
+        fill={`url(#pawn-body-${color})`}
+        stroke={selected ? '#fff' : movable ? 'rgba(255,255,255,0.55)' : COLOR_DEEP[color]}
+        strokeWidth={selected ? 0.09 : movable ? 0.07 : 0.04}
+      />
+      {/* Equator band for volume */}
+      <ellipse
+        cx={cx}
+        cy={bodyCy + bodyR * 0.15}
+        rx={bodyR * 0.86}
+        ry={bodyR * 0.22}
+        fill={`url(#pawn-band-${color})`}
+        opacity={0.55}
+      />
+      {/* Crown / head knob */}
+      <circle
+        cx={cx}
+        cy={crownCy}
+        r={crownR}
+        fill={`url(#pawn-crown-${color})`}
+        stroke={COLOR_DEEP[color]}
+        strokeWidth={0.03}
+      />
+      {/* Specular highlights */}
+      <ellipse
+        cx={cx - bodyR * 0.28}
+        cy={bodyCy - bodyR * 0.32}
+        rx={bodyR * 0.28}
+        ry={bodyR * 0.18}
+        fill="rgba(255,255,255,0.55)"
+      />
+      <circle
+        cx={cx - crownR * 0.25}
+        cy={crownCy - crownR * 0.28}
+        r={crownR * 0.28}
+        fill="rgba(255,255,255,0.65)"
+      />
+      {/* Rim light */}
+      <path
+        d={`M ${cx + bodyR * 0.55} ${bodyCy - bodyR * 0.55}
+            A ${bodyR} ${bodyR} 0 0 1 ${cx + bodyR * 0.7} ${bodyCy + bodyR * 0.2}`}
+        fill="none"
+        stroke="rgba(255,255,255,0.28)"
+        strokeWidth={0.045}
+        strokeLinecap="round"
+      />
+    </g>
+  );
+}
 
 export function PawnLayer({
   game,
@@ -74,7 +185,9 @@ export function PawnLayer({
   const prevProgress = useRef(new Map<string, number>());
   const [hops, setHops] = useState<Record<string, Hop>>({});
 
-  const progressSig = game.players.map((p) => p.pawns.map((x) => `${x.id}:${x.progress}`).join(',')).join('|');
+  const progressSig = game.players
+    .map((p) => p.pawns.map((x) => `${x.id}:${x.progress}`).join(','))
+    .join('|');
 
   useEffect(() => {
     const nextHops: Record<string, Hop> = {};
@@ -92,11 +205,7 @@ export function PawnLayer({
         const fromCell =
           prev < 0
             ? getYardSlotCell(pawn.seat, yardSlots.get(pawn.id) ?? 0)
-            : (() => {
-                // approximate previous cell without old yard slot
-                if (prev < 0) return getYardSlotCell(pawn.seat, 0);
-                return getPawnCell(pawn.seat, prev, pawn.index, 0);
-              })();
+            : getPawnCell(pawn.seat, prev, pawn.index, 0);
 
         prevProgress.current.set(pawn.id, pawn.progress);
 
@@ -177,16 +286,37 @@ export function PawnLayer({
     <div className="pointer-events-none absolute inset-0" data-testid="pawn-layer">
       <svg viewBox="0 0 15 15" className="h-full w-full overflow-visible">
         <defs>
-          {(Object.keys(COLOR) as SeatColor[]).map((c) => (
-            <radialGradient key={c} id={`pawn-grad-${c}`} cx="35%" cy="30%" r="70%">
-              <stop offset="0%" stopColor="#fff" stopOpacity="0.55" />
-              <stop offset="45%" stopColor={COLOR[c]} />
-              <stop offset="100%" stopColor={COLOR_DEEP[c]} />
-            </radialGradient>
-          ))}
-          <filter id="pawn-shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="0.06" stdDeviation="0.05" floodOpacity="0.45" />
+          <filter id="pawn-blur" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="0.06" />
           </filter>
+          {(Object.keys(COLOR) as SeatColor[]).map((c) => (
+            <g key={c}>
+              <radialGradient id={`pawn-body-${c}`} cx="32%" cy="28%" r="72%">
+                <stop offset="0%" stopColor="#fff" stopOpacity="0.7" />
+                <stop offset="28%" stopColor={COLOR[c]} />
+                <stop offset="72%" stopColor={COLOR_MID[c]} />
+                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+              </radialGradient>
+              <radialGradient id={`pawn-crown-${c}`} cx="35%" cy="30%" r="70%">
+                <stop offset="0%" stopColor="#fff" stopOpacity="0.75" />
+                <stop offset="40%" stopColor={COLOR[c]} />
+                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+              </radialGradient>
+              <linearGradient id={`pawn-base-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor={COLOR[c]} />
+                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+              </linearGradient>
+              <radialGradient id={`pawn-base-inner-${c}`} cx="50%" cy="40%" r="60%">
+                <stop offset="0%" stopColor={COLOR[c]} stopOpacity="0.9" />
+                <stop offset="100%" stopColor={COLOR_DEEP[c]} />
+              </radialGradient>
+              <linearGradient id={`pawn-band-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor={COLOR_DEEP[c]} stopOpacity="0" />
+                <stop offset="50%" stopColor={COLOR_DEEP[c]} stopOpacity="0.45" />
+                <stop offset="100%" stopColor={COLOR_DEEP[c]} stopOpacity="0" />
+              </linearGradient>
+            </g>
+          ))}
         </defs>
 
         {previews.map(({ move, cell, strong }) => (
@@ -223,11 +353,7 @@ export function PawnLayer({
           const cy = cell.row + 0.5 + dy;
           const rIdx = ringIndexOf(pawn.seat, pawn.progress);
           const hop = hops[pawn.id];
-          const visualR = movable ? 0.4 : 0.34;
-
-          const animatePos = hop
-            ? { cx: hop.cx, cy: hop.cy }
-            : { cx, cy };
+          const visualR = movable ? 0.42 : 0.36;
 
           const transition = reducedMotion
             ? { duration: 0 }
@@ -241,13 +367,13 @@ export function PawnLayer({
 
           return (
             <g key={pawn.id}>
+              {/* Invisible hit target — carries testids / a11y */}
               <motion.circle
                 r={0.55}
                 fill="transparent"
                 className="pointer-events-auto cursor-pointer"
                 style={{ pointerEvents: 'auto', outline: 'none' }}
                 onPointerDown={(e) => {
-                  // Prevent the giant SVG focus ring from appearing on click
                   e.currentTarget.blur();
                 }}
                 onClick={(e) => {
@@ -255,7 +381,7 @@ export function PawnLayer({
                   onSelect(pawn.id);
                 }}
                 initial={false}
-                animate={animatePos}
+                animate={hop ? { cx: hop.cx, cy: hop.cy } : { cx, cy }}
                 transition={transition}
                 data-testid={pawn.id}
                 data-progress={pawn.progress}
@@ -264,18 +390,21 @@ export function PawnLayer({
                 tabIndex={movable ? 0 : -1}
                 aria-label={`${player.color} pawn ${pawn.index + 1}`}
               />
-              <motion.circle
-                r={visualR}
-                fill={`url(#pawn-grad-${player.color})`}
-                stroke={selected ? '#fff' : movable ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.35)'}
-                strokeWidth={selected ? 0.1 : movable ? 0.08 : 0.045}
-                filter="url(#pawn-shadow)"
-                style={{ pointerEvents: 'none' }}
+              <motion.g
                 initial={false}
-                animate={{
-                  ...animatePos,
-                  scale: selected ? 1.12 : movable ? [1, 1.08, 1] : 1,
-                }}
+                animate={
+                  hop
+                    ? {
+                        x: hop.cx,
+                        y: hop.cy,
+                        scale: selected ? 1.1 : movable ? [1, 1.06, 1] : 1,
+                      }
+                    : {
+                        x: cx,
+                        y: cy,
+                        scale: selected ? 1.1 : movable ? [1, 1.06, 1] : 1,
+                      }
+                }
                 transition={
                   reducedMotion
                     ? { duration: 0 }
@@ -283,28 +412,23 @@ export function PawnLayer({
                       ? transition
                       : movable
                         ? {
-                            scale: { duration: 1.1, repeat: Infinity, ease: 'easeInOut' },
-                            cx: { type: 'spring', stiffness: 380, damping: 26 },
-                            cy: { type: 'spring', stiffness: 380, damping: 26 },
+                            scale: { duration: 1.15, repeat: Infinity, ease: 'easeInOut' },
+                            x: { type: 'spring', stiffness: 380, damping: 26 },
+                            y: { type: 'spring', stiffness: 380, damping: 26 },
                           }
                         : transition
                 }
-              />
-              <motion.circle
-                r={0.1}
-                fill="rgba(255,255,255,0.55)"
-                style={{ pointerEvents: 'none' }}
-                initial={false}
-                animate={
-                  hop
-                    ? {
-                        cx: hop.cx.map((v) => v - 0.1),
-                        cy: hop.cy.map((v) => v - 0.12),
-                      }
-                    : { cx: cx - 0.1, cy: cy - 0.12 }
-                }
-                transition={transition}
-              />
+                style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+              >
+                <Token3D
+                  color={player.color}
+                  cx={0}
+                  cy={0}
+                  r={visualR}
+                  selected={selected}
+                  movable={movable}
+                />
+              </motion.g>
             </g>
           );
         })}

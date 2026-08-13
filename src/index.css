@@ -185,9 +185,9 @@ circle[data-testid^='pawn-']:focus-visible,
     padding-bottom: 0.35rem;
   }
 
-  .hud-dice [data-testid='dice-face'] {
-    height: 3.25rem !important;
-    width: 3.25rem !important;
+  .hud-dice .dice-scene {
+    width: 3.5rem;
+    height: 3.5rem;
   }
 
   .hud-log {
@@ -248,3 +248,70 @@ circle[data-testid^='pawn-']:focus-visible,
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent),
     0 12px 32px rgba(0, 0, 0, 0.25);
 }
+
+/* ——— 3D dice cube ——— */
+.dice-scene {
+  position: relative;
+  width: 5.5rem;
+  height: 5.5rem;
+  margin: 0 auto;
+  perspective: 900px;
+  perspective-origin: 50% 40%;
+}
+
+.dice-cube {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 5rem;
+  height: 5rem;
+  --dice-z: 2.5rem;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.dice-face-3d {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backface-visibility: hidden;
+  border-radius: 0.85rem;
+  background:
+    radial-gradient(120% 90% at 28% 22%, #ffffff 0%, #f4f7fb 38%, #d5dee8 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.95),
+    inset 0 -6px 14px rgba(15, 25, 40, 0.18),
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.55),
+    0 0 0 1px rgba(20, 30, 45, 0.12);
+}
+
+.dice-floor-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 0.15rem;
+  width: 3.6rem;
+  height: 0.7rem;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.4), transparent 70%);
+  pointer-events: none;
+  filter: blur(2px);
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .dice-scene {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+  .dice-cube {
+    width: 3.15rem;
+    height: 3.15rem;
+    --dice-z: 1.575rem;
+  }
+  .dice-face-3d {
+    border-radius: 0.55rem;
+  }
+}
+

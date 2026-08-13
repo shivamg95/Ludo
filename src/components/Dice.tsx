@@ -34,6 +34,49 @@ const FACE_DOTS: Record<number, [number, number][]> = {
   ],
 };
 
+/** Camera rotation that brings each face to the front. */
+const FACE_ROTATION: Record<number, { x: number; y: number }> = {
+  1: { x: 0, y: 0 },
+  2: { x: 0, y: -90 },
+  3: { x: -90, y: 0 },
+  4: { x: 90, y: 0 },
+  5: { x: 0, y: 90 },
+  6: { x: 0, y: 180 },
+};
+
+function FacePips({ value, soft = false }: { value: number; soft?: boolean }) {
+  const dots = FACE_DOTS[value]!;
+  return (
+    <svg viewBox="0 0 100 100" className="h-full w-full p-[14%]">
+      {dots.map(([x, y], i) => (
+        <g key={i}>
+          <circle cx={x + 1.2} cy={y + 1.8} r={9} fill="rgba(0,0,0,0.18)" />
+          <circle cx={x} cy={y} r={8.5} fill={soft ? 'rgba(21,32,51,0.2)' : '#1a2433'} />
+          {!soft && (
+            <circle cx={x - 2.2} cy={y - 2.5} r={2.4} fill="rgba(255,255,255,0.35)" />
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function DiceFace({
+  value,
+  transform,
+  soft,
+}: {
+  value: number;
+  transform: string;
+  soft?: boolean;
+}) {
+  return (
+    <div className="dice-face-3d" style={{ transform }} aria-hidden>
+      <FacePips value={value} soft={soft} />
+    </div>
+  );
+}
+
 interface Props {
   value: number | null;
   rolling?: boolean;
@@ -42,8 +85,9 @@ interface Props {
 }
 
 export function Dice({ value, rolling, disabled, onRoll }: Props) {
-  const showFace = value !== null && !rolling;
-  const dots = showFace ? FACE_DOTS[value] : null;
+  const showValue = value !== null ? value : 1;
+  const settled = FACE_ROTATION[showValue]!;
+  const soft = value === null && !rolling;
 
   return (
     <button
@@ -59,46 +103,40 @@ export function Dice({ value, rolling, disabled, onRoll }: Props) {
             ? `Dice showing ${value}. Click to roll.`
             : 'Roll dice'
       }
-      style={{ perspective: 800 }}
     >
-      <motion.div
-        className="relative h-20 w-20 rounded-2xl"
-        style={{
-          background: 'linear-gradient(145deg, #ffffff, #d5dee8)',
-          boxShadow:
-            'inset 0 2px 6px rgba(255,255,255,0.85), inset 0 -3px 8px rgba(0,0,0,0.12), 0 12px 28px rgba(0,0,0,0.4)',
-          transformStyle: 'preserve-3d',
-        }}
-        animate={
-          rolling
-            ? { rotateX: [0, 360, 720], rotateY: [0, 420, 780], scale: [1, 1.1, 1] }
-            : { rotateX: 0, rotateY: 0, scale: 1 }
-        }
-        transition={{ duration: rolling ? 0.55 : 0.25, ease: 'easeOut' }}
-        data-testid="dice-face"
-        data-value={showFace ? String(value) : ''}
-      >
-        <svg viewBox="0 0 100 100" className="h-full w-full p-2">
-          {dots ? (
-            dots.map(([x, y], i) => (
-              <circle key={i} cx={x} cy={y} r={8} fill="#152033" />
-            ))
-          ) : (
-            <>
-              {[
-                [28, 28],
-                [28, 50],
-                [28, 72],
-                [72, 28],
-                [72, 50],
-                [72, 72],
-              ].map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r={6} fill="#152033" opacity={0.12} />
-              ))}
-            </>
-          )}
-        </svg>
-      </motion.div>
+      <div className="dice-scene">
+        <motion.div
+          className="dice-cube"
+          style={{ transformStyle: 'preserve-3d' }}
+          animate={
+            rolling
+              ? {
+                  rotateX: [settled.x, settled.x + 400, settled.x + 760],
+                  rotateY: [settled.y, settled.y - 520, settled.y - 1040],
+                  z: [0, 28, 0],
+                }
+              : {
+                  rotateX: settled.x,
+                  rotateY: settled.y,
+                  z: 0,
+                }
+          }
+          transition={{
+            duration: rolling ? 0.65 : 0.35,
+            ease: rolling ? [0.2, 0.8, 0.2, 1] : 'easeOut',
+          }}
+          data-testid="dice-face"
+          data-value={value !== null && !rolling ? String(value) : ''}
+        >
+          <DiceFace value={1} transform="translateZ(var(--dice-z))" soft={soft} />
+          <DiceFace value={6} transform="rotateY(180deg) translateZ(var(--dice-z))" soft={soft} />
+          <DiceFace value={5} transform="rotateY(-90deg) translateZ(var(--dice-z))" soft={soft} />
+          <DiceFace value={2} transform="rotateY(90deg) translateZ(var(--dice-z))" soft={soft} />
+          <DiceFace value={3} transform="rotateX(90deg) translateZ(var(--dice-z))" soft={soft} />
+          <DiceFace value={4} transform="rotateX(-90deg) translateZ(var(--dice-z))" soft={soft} />
+        </motion.div>
+        <div className="dice-floor-shadow" aria-hidden />
+      </div>
       <span className="mt-2 block text-center text-xs" style={{ color: 'var(--muted)' }}>
         {rolling ? 'Rolling…' : disabled ? 'Wait' : value ? `Rolled ${value}` : 'Tap to roll'}
       </span>
