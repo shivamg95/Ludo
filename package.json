@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b --noEmit && vite build",
+    "build:pages": "VITE_BASE=/Ludo/ npm run build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "oxlint src e2e && node scripts/check-engine-imports.mjs",

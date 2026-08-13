@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// GitHub Pages serves this project from /<repo>/, so the build needs a base path.
+// Local dev, preview and Playwright keep the default '/'.
+const base = process.env.VITE_BASE ?? '/';
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     tailwindcss(),
@@ -24,7 +29,7 @@ export default defineConfig({
         orientation: 'any',
         icons: [
           {
-            src: '/favicon.svg',
+            src: `${base}favicon.svg`,
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any maskable',
