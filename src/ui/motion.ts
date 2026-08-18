@@ -35,6 +35,7 @@ export const BEAT = {
   readRoll: 650,
   autoMove: 340,
   toast: 1600,
+  forfeit: 2400,
 } as const;
 
 const QUERY = '(prefers-reduced-motion: reduce)';

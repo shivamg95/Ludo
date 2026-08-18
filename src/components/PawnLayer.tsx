@@ -3,8 +3,9 @@ import { motion } from 'motion/react';
 import type { GameState, Move, SeatColor } from '../engine/types';
 import { getPawnCell, hopWaypoints, getYardSlotCell } from '../engine/selectors';
 import { ringIndexOf, cellOf } from '../engine/board';
-import { SEAT_RAMP, ACCENT } from '../theme/seats';
+import { SEAT_RAMP, boardPalette } from '../theme/seats';
 import { SPRING } from '../ui/motion';
+import { useAppStore } from '../store/gameStore';
 import { buildWalkHop, buildEnterHop, buildReturnHop, type Hop } from '../ui/hop';
 
 interface Props {
@@ -60,12 +61,16 @@ function Token({
   selected,
   movable,
   doomed,
+  collar,
+  gold,
 }: {
   color: SeatColor;
   r: number;
   selected: boolean;
   movable: boolean;
   doomed: boolean;
+  collar: string;
+  gold: string;
 }) {
   const ramp = SEAT_RAMP[color];
   const halfW = 0.72 * r;
@@ -170,18 +175,30 @@ function Token({
         fill="none"
       />
 
-      {/* Selection collar */}
+      {/* Selection collar — ink on paper tiles, white on night tiles, plus a seat rim */}
       {selected && (
-        <ellipse
-          cx={0}
-          cy={botY}
-          rx={halfW * 1.3}
-          ry={ry * 1.3}
-          fill="none"
-          stroke="#fff"
-          strokeWidth={0.05}
-          opacity={0.9}
-        />
+        <>
+          <ellipse
+            cx={0}
+            cy={botY}
+            rx={halfW * 1.34}
+            ry={ry * 1.34}
+            fill="none"
+            stroke={collar}
+            strokeWidth={0.07}
+            opacity={0.95}
+          />
+          <ellipse
+            cx={0}
+            cy={botY}
+            rx={halfW * 1.22}
+            ry={ry * 1.22}
+            fill="none"
+            stroke={ramp.rim}
+            strokeWidth={0.035}
+            opacity={0.9}
+          />
+        </>
       )}
 
       {/* Danger ring — this token dies if the highlighted move is taken */}
@@ -192,7 +209,7 @@ function Token({
           rx={halfW * 1.42}
           ry={ry * 1.42}
           fill="none"
-          stroke={ACCENT.gold}
+          stroke={gold}
           strokeWidth={0.06}
           strokeDasharray="0.14 0.1"
           opacity={0.95}
@@ -210,6 +227,8 @@ export function PawnLayer({
   reducedMotion,
   previewPawnId,
 }: Props) {
+  const theme = useAppStore((s) => s.theme);
+  const { surface, accent } = boardPalette(theme);
   const yardSlots = useMemo(() => {
     const map = new Map<string, number>();
     for (const player of game.players) {
@@ -456,7 +475,7 @@ export function PawnLayer({
               cy={cell.row + 0.5}
               r={strong ? 0.4 : 0.3}
               fill="none"
-              stroke={ACCENT.core}
+              stroke={accent.core}
               strokeWidth={strong ? 0.09 : 0.055}
               strokeDasharray={strong ? undefined : '0.13 0.11'}
               opacity={strong ? 1 : 0.6}
@@ -470,7 +489,7 @@ export function PawnLayer({
               style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
             />
             {strong && (
-              <circle cx={cell.col + 0.5} cy={cell.row + 0.5} r={0.13} fill={ACCENT.core} />
+              <circle cx={cell.col + 0.5} cy={cell.row + 0.5} r={0.13} fill={accent.core} />
             )}
           </g>
         ))}
@@ -526,6 +545,8 @@ export function PawnLayer({
                   selected={selected}
                   movable={movable}
                   doomed={doomed}
+                  collar={surface.collar}
+                  gold={accent.gold}
                 />
               </motion.g>
               {isStackTop && (
@@ -565,7 +586,7 @@ export function PawnLayer({
                   cx={burst.x}
                   cy={burst.y}
                   fill="none"
-                  stroke={ACCENT.gold}
+                  stroke={accent.gold}
                   initial={{ r: 0.18, opacity: 0.95, strokeWidth: 0.14 }}
                   animate={{ r: 1.5, opacity: 0, strokeWidth: 0.02 }}
                   transition={{ duration: 0.62, ease: 'easeOut' }}

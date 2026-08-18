@@ -1,8 +1,9 @@
 import { Fragment, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { RING, SEATS, SAFE_RING_INDICES, ringIndexOf } from '../engine/board';
-import { SEAT_RAMP, SURFACE, ACCENT } from '../theme/seats';
+import { SEAT_RAMP, boardPalette } from '../theme/seats';
 import { useReducedMotion } from '../ui/motion';
+import { useAppStore } from '../store/gameStore';
 import type { SeatColor } from '../engine/types';
 
 /** Ring cells a seat travels just before turning into its home column. */
@@ -23,12 +24,24 @@ function runwayAngle(seat: number): number {
   return (Math.atan2(b.row - a.row, b.col - a.col) * 180) / Math.PI;
 }
 
-function Chevron({ x, y, angle, opacity }: { x: number; y: number; angle: number; opacity: number }) {
+function Chevron({
+  x,
+  y,
+  angle,
+  opacity,
+  color,
+}: {
+  x: number;
+  y: number;
+  angle: number;
+  opacity: number;
+  color: string;
+}) {
   return (
     <path
       d="M -0.13 -0.17 L 0.11 0 L -0.13 0.17"
       fill="none"
-      stroke="#fff"
+      stroke={color}
       strokeWidth={0.07}
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -39,7 +52,19 @@ function Chevron({ x, y, angle, opacity }: { x: number; y: number; angle: number
 }
 
 /** Recessed plate marking a safe cell — no capture lands here. */
-function SafePlate({ cx, cy, color }: { cx: number; cy: number; color: string }) {
+function SafePlate({
+  cx,
+  cy,
+  color,
+  plate,
+  plateOpacity,
+}: {
+  cx: number;
+  cy: number;
+  color: string;
+  plate: string;
+  plateOpacity: number;
+}) {
   const r = 0.27;
   const diamond = (k: number) =>
     [
@@ -50,7 +75,7 @@ function SafePlate({ cx, cy, color }: { cx: number; cy: number; color: string })
     ].join(' ');
   return (
     <g pointerEvents="none">
-      <polygon points={diamond(1)} fill="#000" opacity={0.35} />
+      <polygon points={diamond(1)} fill={plate} opacity={plateOpacity} />
       <polygon points={diamond(1)} fill="none" stroke={color} strokeWidth={0.032} opacity={0.7} />
       <polygon points={diamond(0.42)} fill={color} opacity={0.75} />
     </g>
@@ -85,7 +110,10 @@ export function BoardSvg({
   activeSeat?: number | null;
 }) {
   const reduced = useReducedMotion();
+  const theme = useAppStore((s) => s.theme);
+  const { surface, accent } = boardPalette(theme);
   const live = new Set(activeSeats ?? [0, 1, 2, 3]);
+  const bloom = surface.bloom ? 'url(#board-bloom)' : undefined;
 
   /** ringIndex -> seat that owns the tint (start cell or approach lane). */
   const ringOwner = new Map<number, number>();
@@ -113,8 +141,8 @@ export function BoardSvg({
           width={0.88}
           height={0.88}
           rx={0.14}
-          fill={safe ? SURFACE.tileSafe : SURFACE.tile}
-          stroke={SURFACE.tileEdge}
+          fill={safe ? surface.tileSafe : surface.tile}
+          stroke={surface.tileEdge}
           strokeWidth={0.022}
           data-testid={`cell-r${cell.row}-c${cell.col}`}
           data-ring-index={String(i)}
@@ -151,8 +179,8 @@ export function BoardSvg({
           width={0.72}
           height={0.16}
           rx={0.08}
-          fill="#fff"
-          opacity={0.07}
+          fill={surface.sheen}
+          opacity={surface.sheenOpacity}
         />
         {isStart && ramp ? (
           <StartPad cx={cell.col + 0.5} cy={cell.row + 0.5} color={ramp.rim} />
@@ -161,7 +189,9 @@ export function BoardSvg({
             <SafePlate
               cx={cell.col + 0.5}
               cy={cell.row + 0.5}
-              color={ramp ? ramp.rim : ACCENT.core}
+              color={ramp ? ramp.rim : accent.core}
+              plate={surface.safePlate}
+              plateOpacity={surface.safePlateOpacity}
             />
           )
         )}
@@ -186,8 +216,8 @@ export function BoardSvg({
             width={0.88}
             height={0.88}
             rx={0.14}
-            fill={used ? ramp.core : SURFACE.dormant}
-            opacity={used ? 0.46 + t * 0.5 : 0.5}
+            fill={used ? ramp.core : surface.dormant}
+            opacity={used ? surface.homeFillStart + t * surface.homeFillSpan : 0.5}
             data-testid={`cell-r${cell.row}-c${cell.col}`}
           />
           <rect
@@ -197,9 +227,9 @@ export function BoardSvg({
             height={0.88}
             rx={0.14}
             fill="none"
-            stroke={used ? ramp.rim : SURFACE.dormantEdge}
-            strokeWidth={0.028}
-            opacity={used ? 0.35 + t * 0.45 : 1}
+            stroke={used ? ramp.deep : surface.dormantEdge}
+            strokeWidth={used ? 0.04 : 0.028}
+            opacity={used ? 0.55 + t * 0.35 : 1}
           />
           {used && (
             <Chevron
@@ -207,6 +237,7 @@ export function BoardSvg({
               y={cell.row + 0.5}
               angle={angle}
               opacity={isActive ? 0.5 + t * 0.4 : 0.22 + t * 0.28}
+              color={surface.chevron}
             />
           )}
         </g>,
@@ -238,11 +269,11 @@ export function BoardSvg({
           width={w - 0.4}
           height={h - 0.4}
           rx={0.4}
-          fill={used ? `url(#yard-fill-${seat.color})` : SURFACE.dormant}
-          stroke={used ? ramp.core : SURFACE.dormantEdge}
+          fill={used ? `url(#yard-fill-${seat.color})` : surface.dormant}
+          stroke={used ? ramp.core : surface.dormantEdge}
           strokeWidth={used ? (isActive ? 0.09 : 0.055) : 0.03}
           opacity={used ? 1 : 0.75}
-          filter={used && isActive ? 'url(#board-bloom)' : undefined}
+          filter={used && isActive ? bloom : undefined}
         />
         <rect
           x={y.colMin + 0.95}
@@ -250,8 +281,8 @@ export function BoardSvg({
           width={w - 1.9}
           height={h - 1.9}
           rx={0.32}
-          fill="rgba(3,6,12,0.5)"
-          stroke={used ? ramp.core : SURFACE.dormantEdge}
+          fill={surface.well}
+          stroke={used ? ramp.core : surface.dormantEdge}
           strokeWidth={0.025}
           opacity={used ? 0.5 : 0.6}
           strokeDasharray={used ? undefined : '0.18 0.14'}
@@ -262,8 +293,8 @@ export function BoardSvg({
             cx={s.cx}
             cy={s.cy}
             r={0.46}
-            fill="rgba(0,0,0,0.34)"
-            stroke={used ? ramp.core : SURFACE.dormantEdge}
+            fill={surface.socket}
+            stroke={used ? ramp.core : surface.dormantEdge}
             strokeWidth={0.03}
             opacity={used ? 0.42 : 0.5}
           />
@@ -287,6 +318,7 @@ export function BoardSvg({
       role="img"
       aria-label="Ludo board"
       data-testid="board-svg"
+      data-board-theme={theme}
       style={{ overflow: 'visible' }}
     >
       <defs>
@@ -306,14 +338,14 @@ export function BoardSvg({
         </filter>
 
         <radialGradient id="board-vignette" cx="50%" cy="45%" r="72%">
-          <stop offset="55%" stopColor="#000" stopOpacity="0" />
-          <stop offset="100%" stopColor="#000" stopOpacity="0.6" />
+          <stop offset="55%" stopColor={surface.vignette} stopOpacity="0" />
+          <stop offset="100%" stopColor={surface.vignette} stopOpacity={surface.vignetteOpacity} />
         </radialGradient>
 
         <linearGradient id="board-plate" x1="0%" y1="0%" x2="70%" y2="100%">
-          <stop offset="0%" stopColor="#0d1421" />
-          <stop offset="55%" stopColor={SURFACE.board} />
-          <stop offset="100%" stopColor="#04070d" />
+          <stop offset="0%" stopColor={surface.plateStart} />
+          <stop offset="55%" stopColor={surface.board} />
+          <stop offset="100%" stopColor={surface.plateEnd} />
         </linearGradient>
 
         <linearGradient id="hub-shine" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -327,9 +359,8 @@ export function BoardSvg({
             <linearGradient id={`yard-fill-${c}`} x1="0%" y1="0%" x2="55%" y2="100%">
               <stop offset="0%" stopColor={SEAT_RAMP[c].core} stopOpacity="0.2" />
               <stop offset="55%" stopColor={SEAT_RAMP[c].deep} stopOpacity="0.34" />
-              <stop offset="100%" stopColor="#05080f" stopOpacity="0.9" />
+              <stop offset="100%" stopColor={surface.yardDeep} stopOpacity={surface.yardDeepOpacity} />
             </linearGradient>
-            {/* Dark well at the centre, lifting to a lit rim */}
             <radialGradient
               id={`hub-${c}`}
               gradientUnits="userSpaceOnUse"
@@ -337,8 +368,8 @@ export function BoardSvg({
               cy="7.5"
               r="2.12"
             >
-              <stop offset="0%" stopColor="#05080f" stopOpacity="0.95" />
-              <stop offset="45%" stopColor={SEAT_RAMP[c].deep} stopOpacity="0.8" />
+              <stop offset="0%" stopColor={surface.hubWell} stopOpacity={surface.hubWellOpacity} />
+              <stop offset="45%" stopColor={SEAT_RAMP[c].deep} stopOpacity={surface.hubDeepOpacity} />
               <stop offset="82%" stopColor={SEAT_RAMP[c].core} stopOpacity="0.42" />
               <stop offset="100%" stopColor={SEAT_RAMP[c].core} stopOpacity="0.72" />
             </radialGradient>
@@ -359,7 +390,7 @@ export function BoardSvg({
         height={14.92}
         rx={0.8}
         fill="none"
-        stroke={ACCENT.core}
+        stroke={accent.core}
         strokeWidth={0.06}
         opacity={0.3}
       />
@@ -370,14 +401,14 @@ export function BoardSvg({
         height={14.68}
         rx={0.68}
         fill="none"
-        stroke="rgba(140,180,255,0.1)"
+        stroke={surface.innerStroke}
         strokeWidth={0.03}
       />
 
       {/* Raised plus-shaped road so the track reads as a path, not scattered tiles */}
       <g pointerEvents="none">
-        <rect x={0.5} y={5.94} width={14} height={3.12} rx={0.3} fill={SURFACE.track} />
-        <rect x={5.94} y={0.5} width={3.12} height={14} rx={0.3} fill={SURFACE.track} />
+        <rect x={0.5} y={5.94} width={14} height={3.12} rx={0.3} fill={surface.track} />
+        <rect x={5.94} y={0.5} width={3.12} height={14} rx={0.3} fill={surface.track} />
         <rect
           x={0.5}
           y={5.94}
@@ -385,7 +416,7 @@ export function BoardSvg({
           height={3.12}
           rx={0.3}
           fill="none"
-          stroke="rgba(150,190,255,0.12)"
+          stroke={surface.trackStroke}
           strokeWidth={0.03}
         />
         <rect
@@ -395,7 +426,7 @@ export function BoardSvg({
           height={14}
           rx={0.3}
           fill="none"
-          stroke="rgba(150,190,255,0.12)"
+          stroke={surface.trackStroke}
           strokeWidth={0.03}
         />
       </g>
@@ -404,7 +435,7 @@ export function BoardSvg({
 
       {/* Hub */}
       <g>
-        <rect x={5.9} y={5.9} width={3.2} height={3.2} rx={0.42} fill={SURFACE.hub} />
+        <rect x={5.9} y={5.9} width={3.2} height={3.2} rx={0.42} fill={surface.hub} />
         {hub.map((t) => {
           const used = live.has(t.seat);
           const color = SEATS[t.seat]!.color;
@@ -414,18 +445,17 @@ export function BoardSvg({
             <g key={t.seat}>
               <polygon
                 points={t.points}
-                fill={used ? `url(#hub-${color})` : SURFACE.dormant}
+                fill={used ? `url(#hub-${color})` : surface.dormant}
                 opacity={used ? 1 : 0.55}
               />
-              {/* Only the outer edge glows — the point of each wedge stays dark */}
               <polygon
                 points={t.points}
                 fill="none"
-                stroke={used ? ramp.core : SURFACE.dormantEdge}
+                stroke={used ? ramp.core : surface.dormantEdge}
                 strokeWidth={used ? (isActive ? 0.07 : 0.045) : 0.025}
                 strokeLinejoin="round"
                 opacity={used ? (isActive ? 1 : 0.75) : 1}
-                filter={used && isActive ? 'url(#board-bloom)' : undefined}
+                filter={used && isActive ? bloom : undefined}
               />
             </g>
           );
@@ -437,7 +467,7 @@ export function BoardSvg({
           height={3.2}
           rx={0.42}
           fill="none"
-          stroke={ACCENT.core}
+          stroke={accent.core}
           strokeWidth={0.045}
           opacity={0.4}
         />
@@ -458,13 +488,20 @@ export function BoardSvg({
             }
           />
         </g>
-        <g filter="url(#hub-bloom)">
-          <circle cx={7.5} cy={7.5} r={0.32} fill="#04070d" stroke={ACCENT.core} strokeWidth={0.05} />
+        <g filter={bloom ? 'url(#hub-bloom)' : undefined}>
+          <circle
+            cx={7.5}
+            cy={7.5}
+            r={0.32}
+            fill={surface.jewel}
+            stroke={accent.core}
+            strokeWidth={0.05}
+          />
           <motion.circle
             cx={7.5}
             cy={7.5}
             r={0.17}
-            fill={ACCENT.core}
+            fill={accent.core}
             initial={false}
             animate={reduced ? { opacity: 0.9 } : { opacity: [0.5, 1, 0.5] }}
             transition={
@@ -486,7 +523,7 @@ export function BoardSvg({
               width={0.76}
               height={0.76}
               rx={0.16}
-              fill="rgba(4,7,13,0.82)"
+              fill={surface.lockPlate}
               stroke={ramp.core}
               strokeWidth={0.04}
               opacity={0.95}
@@ -497,12 +534,12 @@ export function BoardSvg({
               width={0.32}
               height={0.24}
               rx={0.05}
-              fill={ACCENT.gold}
+              fill={accent.gold}
             />
             <path
               d={`M ${first.col + 0.39} ${first.row + 0.46} v -0.1 a 0.11 0.11 0 0 1 0.22 0 v 0.1`}
               fill="none"
-              stroke={ACCENT.gold}
+              stroke={accent.gold}
               strokeWidth={0.045}
             />
           </g>

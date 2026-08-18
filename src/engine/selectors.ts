@@ -94,6 +94,18 @@ export function formatProgress(progress: number): string {
   return 'HOME';
 }
 
+/** One pawn's full journey is 56 progress units (yard counts as 0). Four pawns = 224. */
+export const CLASSIC_PROGRESS_MAX = 4 * 56;
+
+/**
+ * How far a player is through Classic: sum of pawn progress over 4 × 56,
+ * rounded to a 0–100 integer. Yard (`progress < 0`) counts as 0.
+ */
+export function playerProgressPercent(player: Player): number {
+  const sum = player.pawns.reduce((acc, p) => acc + Math.max(0, p.progress), 0);
+  return Math.round((sum / CLASSIC_PROGRESS_MAX) * 100);
+}
+
 export function boardOccupancy(state: GameState): Map<string, string[]> {
   const map = new Map<string, string[]>();
   for (const player of state.players) {
