@@ -198,11 +198,43 @@ const CUES: Record<Sfx, (ac: AudioContext) => void> = {
     tone(ac, { type: 'triangle', freq: 987.77, at: 0.08, env: { attack: 0.005, decay: 0.1, release: 0.14, peak: 0.24 } });
   },
 
-  // Three sixes: a deflating buzz
+  // Three sixes: impact thump, falling buzzer, debris whoosh
   forfeit: (ac) => {
-    tone(ac, { type: 'sawtooth', freq: 300, to: 110, env: { attack: 0.006, decay: 0.24, release: 0.18, peak: 0.24 } });
-    noise(ac, { type: 'lowpass', freq: 900, to: 220, env: { attack: 0.01, decay: 0.2, release: 0.16, peak: 0.14 } });
-    haptic([0, 40, 60, 40]);
+    tone(ac, {
+      type: 'sine',
+      freq: 90,
+      to: 32,
+      env: { attack: 0.004, decay: 0.28, release: 0.22, peak: 0.72 },
+    });
+    noise(ac, {
+      type: 'lowpass',
+      freq: 1400,
+      to: 180,
+      q: 0.7,
+      env: { attack: 0.003, decay: 0.18, release: 0.22, peak: 0.42 },
+    });
+    tone(ac, {
+      type: 'sawtooth',
+      freq: 420,
+      to: 90,
+      env: { attack: 0.01, decay: 0.48, release: 0.3, peak: 0.34 },
+    });
+    tone(ac, {
+      type: 'square',
+      freq: 210,
+      to: 70,
+      at: 0.04,
+      env: { attack: 0.008, decay: 0.4, release: 0.26, peak: 0.2 },
+    });
+    noise(ac, {
+      at: 0.08,
+      type: 'lowpass',
+      freq: 2200,
+      to: 280,
+      q: 0.6,
+      env: { attack: 0.02, decay: 0.28, release: 0.32, peak: 0.22 },
+    });
+    haptic([0, 50, 40, 80, 30, 50, 90]);
   },
 
   // Victory fanfare for the results transition

@@ -31,6 +31,7 @@ test.describe('classic mode', () => {
     await expect(page.getByTestId('pawn-red-0')).toHaveAttribute('data-progress', '0');
     await rollAndMove(page, 'pawn-red-0');
     await expect(page.getByTestId('pawn-red-0')).toHaveAttribute('data-progress', '2');
+    await expect(page.getByTestId('progress-red')).toHaveText('1%');
   });
 
   test('reload mid-game restores state', async ({ page }) => {

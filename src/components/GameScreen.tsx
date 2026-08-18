@@ -49,6 +49,13 @@ export function GameScreen() {
     events.forEach((event, i) => {
       if (event.type === 'three_sixes_forfeit') {
         if (!muted) playSfx('forfeit');
+        if (!reducedMotion) {
+          void boardControls.start({
+            x: [0, -12, 10, -8, 5, -2, 0],
+            y: [0, 6, -5, 4, -2, 1, 0],
+            transition: { duration: 0.55, ease: 'easeOut' },
+          });
+        }
         return;
       }
       if (event.type !== 'move') return;

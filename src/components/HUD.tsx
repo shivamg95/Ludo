@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import type { GameState, Player } from '../engine/types';
 import { SEATS } from '../engine/board';
-import { formatEvent } from '../engine/selectors';
+import { formatEvent, playerProgressPercent } from '../engine/selectors';
 import { Dice } from './Dice';
 import { lastRollValue } from '../ui/useGameEvents';
 import { SPRING, DUR } from '../ui/motion';
@@ -54,6 +54,10 @@ export function SeatPod({
         {game.config.mode === 'timed' ? (
           <span className="seat-pod-score" data-testid={`score-${player.color}`}>
             {player.score}
+          </span>
+        ) : game.config.mode === 'classic' ? (
+          <span className="seat-pod-score" data-testid={`progress-${player.color}`}>
+            {playerProgressPercent(player)}<span className="seat-pod-progress-total">%</span>
           </span>
         ) : (
           <span className="seat-pod-progress">
