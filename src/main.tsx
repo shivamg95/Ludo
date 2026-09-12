@@ -5,8 +5,10 @@ import '@fontsource-variable/space-grotesk';
 import './index.css';
 import { App } from './App';
 import { installTestHook, parseUrlParams, useAppStore } from './store/gameStore';
+import { initPwa } from './pwa';
 
 installTestHook();
+initPwa();
 document.body.dataset.animIdle = 'true';
 
 const params = parseUrlParams();
@@ -24,7 +26,7 @@ function Root() {
       useAppStore.getState().setSetup({
         mode: url.mode ?? 'classic',
         totalPlayers: 2,
-        humanCount: 1,
+        humanCount: 2,
       });
       useAppStore.getState().startGame({
         seed: url.seed ?? 42,
@@ -32,7 +34,10 @@ function Root() {
       });
       const dice = new URLSearchParams(window.location.search).get('dice');
       if (dice) {
-        const queue = dice.split(',').map(Number).filter((n) => n >= 1 && n <= 6);
+        const queue = dice
+          .split(',')
+          .map(Number)
+          .filter((n) => n >= 1 && n <= 6);
         useAppStore.getState().dispatch({ type: 'SET_DICE_QUEUE', queue });
       }
       useAppStore.getState().setBotDelay(0);

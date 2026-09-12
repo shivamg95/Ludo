@@ -4,6 +4,7 @@ import type { GameState, SeatColor } from '../engine/types';
 import { SEATS } from '../engine/board';
 import { BEAT, SPRING, useReducedMotion } from './motion';
 import { eventCaptures, eventReachedHome, useEventStream } from './useGameEvents';
+import { capturerApproachSeconds } from './hop';
 
 type ToastKind = 'capture' | 'home' | 'extra';
 
@@ -77,12 +78,17 @@ export function EventFx({ game }: { game: GameState | null }) {
 
       const captures = eventCaptures(event);
       if (captures.length > 0) {
-        push({
-          kind: 'capture',
-          color,
-          headline: captures.length > 1 ? `Capture ×${captures.length}` : 'Capture',
-          detail: `${name} sent it home`,
-        });
+        const from = Number(event.detail?.from ?? -1);
+        const to = Number(event.detail?.to ?? -1);
+        const delayMs = reduced ? 0 : capturerApproachSeconds(from, to) * 1000;
+        window.setTimeout(() => {
+          push({
+            kind: 'capture',
+            color,
+            headline: captures.length > 1 ? `Capture ×${captures.length}` : 'Capture',
+            detail: `${name} sent it home`,
+          });
+        }, delayMs);
         return;
       }
 
@@ -147,7 +153,9 @@ export function EventFx({ game }: { game: GameState | null }) {
               <motion.div
                 className="three-sixes-body"
                 animate={reduced ? { x: 0 } : { x: [0, -10, 8, -6, 3, 0] }}
-                transition={reduced ? { duration: 0 } : { duration: 0.48, delay: 0.08, ease: 'easeOut' }}
+                transition={
+                  reduced ? { duration: 0 } : { duration: 0.48, delay: 0.08, ease: 'easeOut' }
+                }
               >
                 <div className="three-sixes-dice" aria-hidden>
                   <SixFace />

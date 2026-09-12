@@ -17,8 +17,45 @@ const center = (cell: Cell) => ({ x: cell.col + 0.5, y: cell.row + 0.5 });
 /** Beyond this many steps a per-cell hop reads as jitter, so we glide instead. */
 const MAX_HOP_STEPS = 8;
 
+const ENTER_HOP_SECONDS = 0.56;
+
 function evenTimes(count: number): number[] {
   return Array.from({ length: count }, (_, i) => i / Math.max(1, count - 1));
+}
+
+function walkHopDuration(stepCount: number): number {
+  if (stepCount > MAX_HOP_STEPS) return DUR.slow;
+  return Math.min(1, stepCount * DUR.hop + 0.08);
+}
+
+/**
+ * How long the capturer spends travelling before impact. Used to freeze the
+ * victim, delay the burst/SFX, and then send the victim home.
+ */
+export function capturerApproachSeconds(fromProgress: number, toProgress: number): number {
+  if (fromProgress < 0) return ENTER_HOP_SECONDS;
+  const wrapped = fromProgress > 40 && toProgress < 20 && fromProgress <= 50;
+  const steps = wrapped
+    ? 50 - fromProgress + toProgress + 1
+    : Math.max(1, toProgress - fromProgress);
+  return walkHopDuration(steps);
+}
+
+/** Freeze a hop at its start cell, then play it — used so a capture waits for impact. */
+export function holdThen(hop: Hop, holdSeconds: number): Hop {
+  if (holdSeconds <= 0.001) return hop;
+  const total = holdSeconds + hop.duration;
+  const holdT = holdSeconds / total;
+  const startX = hop.x[0]!;
+  const startY = hop.y[0]!;
+  return {
+    ...hop,
+    x: [startX, ...hop.x],
+    y: [startY, ...hop.y],
+    scaleY: [1, ...hop.scaleY],
+    times: [0, ...hop.times.map((t) => holdT + t * (1 - holdT))],
+    duration: total,
+  };
 }
 
 /**
@@ -38,7 +75,7 @@ export function buildWalkHop(from: Cell, waypoints: Cell[]): Hop | null {
       y: [start.y, last.y],
       scaleY: [1, 1],
       times: [0, 1],
-      duration: DUR.slow,
+      duration: walkHopDuration(waypoints.length),
       kind: 'walk',
     };
   }
@@ -66,7 +103,7 @@ export function buildWalkHop(from: Cell, waypoints: Cell[]): Hop | null {
     y,
     scaleY,
     times: evenTimes(x.length),
-    duration: Math.min(1, waypoints.length * DUR.hop + 0.08),
+    duration: walkHopDuration(waypoints.length),
     kind: 'walk',
   };
 }
@@ -80,7 +117,7 @@ export function buildEnterHop(from: Cell, to: Cell): Hop {
     y: [a.y, (a.y + b.y) / 2 - 1.3, b.y, b.y],
     scaleY: [1, 1.16, 0.84, 1],
     times: [0, 0.55, 0.86, 1],
-    duration: 0.56,
+    duration: ENTER_HOP_SECONDS,
     kind: 'enter',
   };
 }

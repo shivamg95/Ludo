@@ -6,16 +6,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: "github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +32,16 @@ jobs:
       # TypeScript 7, so a strict peer resolution fails.
       - run: npm ci --legacy-peer-deps
 
+      - name: Bump patch version
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm version patch --no-git-tag-version
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $(node -p "require('./package.json').version")"
+          git push
+
       # Pages serves the site from /<repo>/, so the bundle needs that base path.
       - run: npm run build
         env:
@@ -41,6 +52,7 @@ jobs:
           path: dist
 
   deploy:
+    if: "github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore: bump version')"
     needs: build
     runs-on: ubuntu-latest
     environment:

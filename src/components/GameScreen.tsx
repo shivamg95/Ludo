@@ -6,6 +6,7 @@ import { PawnLayer } from './PawnLayer';
 import { GameTopBar, MoveLogSheet, SeatPod, TurnDice, WinnerBanner } from './HUD';
 import { playHopTicks, playSfx } from '../audio/sfx';
 import { useReducedMotion, BEAT, DUR, SPRING } from '../ui/motion';
+import { capturerApproachSeconds } from '../ui/hop';
 import { useEventStream, eventCaptures, eventReachedHome } from '../ui/useGameEvents';
 import { useWideLayout } from '../ui/useMediaQuery';
 import { EventFx } from '../ui/EventFx';
@@ -61,15 +62,29 @@ export function GameScreen() {
       if (event.type !== 'move') return;
 
       if (eventCaptures(event).length > 0) {
-        if (!muted) playSfx('capture');
-        if (!reducedMotion) {
-          void boardControls.start({
-            x: [0, -7, 6, -4, 2, 0],
-            y: [0, 4, -3, 2, -1, 0],
-            transition: { duration: 0.42, ease: 'easeOut' },
-          });
-        }
-      } else if (eventReachedHome(event)) {
+        const from = Number(event.detail?.from ?? -1);
+        const to = Number(event.detail?.to ?? -1);
+        const delayMs = reducedMotion ? 0 : capturerApproachSeconds(from, to) * 1000;
+        const extraTurn =
+          i === events.length - 1 &&
+          game &&
+          game.phase === 'waiting_roll' &&
+          game.config.seats[game.currentSeatIndex] === event.seat;
+        window.setTimeout(() => {
+          if (!useAppStore.getState().muted) playSfx('capture');
+          if (!reducedMotion) {
+            void boardControls.start({
+              x: [0, -7, 6, -4, 2, 0],
+              y: [0, 4, -3, 2, -1, 0],
+              transition: { duration: 0.42, ease: 'easeOut' },
+            });
+          }
+          if (extraTurn && !useAppStore.getState().muted) playSfx('extra');
+        }, delayMs);
+        return;
+      }
+
+      if (eventReachedHome(event)) {
         if (!muted) playSfx('home');
       } else if (!muted) {
         if (reducedMotion) {
@@ -141,9 +156,12 @@ export function GameScreen() {
     [selectPawn, movePawn, setAnnouncement],
   );
 
-  const onSelect = useCallback((id: string) => {
-    playMove(id);
-  }, [playMove]);
+  const onSelect = useCallback(
+    (id: string) => {
+      playMove(id);
+    },
+    [playMove],
+  );
 
   // Auto-play the current human's single forced choice only — never other seats / bots.
   useEffect(() => {
@@ -280,7 +298,11 @@ export function GameScreen() {
       data-testid="board-wrap"
       animate={boardControls}
     >
-      <BoardSvg lockedSeats={lockedSeats} activeSeats={game.config.seats} activeSeat={currentSeat} />
+      <BoardSvg
+        lockedSeats={lockedSeats}
+        activeSeats={game.config.seats}
+        activeSeat={currentSeat}
+      />
       <PawnLayer
         game={game}
         movableIds={movableIds}

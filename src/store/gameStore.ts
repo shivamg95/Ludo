@@ -107,11 +107,26 @@ export function peekSavedGame(): SavedGameSummary | null {
   }
 }
 
-function loadSettings(): Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'>> {
+type PersistedSettings = Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'>> & {
+  names?: Record<number, string>;
+};
+
+function coerceNames(raw: unknown): Record<number, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<number, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const seat = Number(k);
+    if (Number.isInteger(seat) && typeof v === 'string') out[seat] = v;
+  }
+  return out;
+}
+
+function loadSettings(): PersistedSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) as Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'>>;
+    const parsed = JSON.parse(raw) as PersistedSettings;
+    return { ...parsed, names: coerceNames(parsed.names) };
   } catch {
     return {};
   }
@@ -120,7 +135,12 @@ function loadSettings(): Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'
 function saveSettings(state: AppState) {
   localStorage.setItem(
     SETTINGS_KEY,
-    JSON.stringify({ muted: state.muted, theme: state.theme, botDelayMs: state.botDelayMs }),
+    JSON.stringify({
+      muted: state.muted,
+      theme: state.theme,
+      botDelayMs: state.botDelayMs,
+      names: state.setup.names,
+    }),
   );
 }
 
@@ -139,8 +159,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setup: {
     mode: 'classic',
     totalPlayers: 2,
-    humanCount: 1,
-    names: defaultNames([0, 2]),
+    humanCount: 2,
+    names: { ...defaultNames([0, 2]), ...settings.names },
     durationMin: 3,
     turnTimerEnabled: true,
   },
@@ -167,15 +187,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { setup };
     });
+    saveSettings(get());
   },
 
   startGame: (overrides) => {
     const config = { ...buildConfig(get().setup), ...overrides };
     const game = createGame(config);
-    const withStart =
-      config.mode === 'timed'
-        ? { ...game, gameStartMs: performance.now() }
-        : game;
+    const withStart = config.mode === 'timed' ? { ...game, gameStartMs: performance.now() } : game;
     // Tests may leave botDelay at 0 in memory; restore a human-playable pace for normal starts
     const botDelayMs = get().botDelayMs <= 0 ? 650 : get().botDelayMs;
     set({
@@ -215,8 +233,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   roll: () => {
     const reduced =
-      typeof document !== 'undefined' &&
-      document.documentElement.dataset.reducedMotion === 'true';
+      typeof document !== 'undefined' && document.documentElement.dataset.reducedMotion === 'true';
     if (reduced || get().rolling) {
       if (!get().rolling) get().dispatch({ type: 'ROLL' });
       return;
@@ -296,8 +313,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!player.isBot) return;
 
     const reduced =
-      typeof document !== 'undefined' &&
-      document.documentElement.dataset.reducedMotion === 'true';
+      typeof document !== 'undefined' && document.documentElement.dataset.reducedMotion === 'true';
 
     // Instant path for tests (botDelay 0) — no animation
     if (botDelayMs <= 0) {
