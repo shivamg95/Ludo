@@ -6,7 +6,7 @@ import { ringIndexOf, cellOf } from '../engine/board';
 import { SEAT_RAMP, boardPalette } from '../theme/seats';
 import { SPRING } from '../ui/motion';
 import { useAppStore } from '../store/gameStore';
-import { buildWalkHop, buildEnterHop, buildReturnHop, type Hop } from '../ui/hop';
+import { buildWalkHop, buildEnterHop, buildReturnHop, holdThen, type Hop } from '../ui/hop';
 
 interface Props {
   game: GameState;
@@ -49,6 +49,7 @@ type Burst = {
   y: number;
   kind: 'capture' | 'home';
   color: SeatColor;
+  delay?: number;
 };
 
 /**
@@ -283,6 +284,7 @@ export function PawnLayer({
 
   useEffect(() => {
     const nextHops: Record<string, Hop> = {};
+    const returnHops: Record<string, Hop> = {};
     const nextBursts: Burst[] = [];
 
     for (const player of game.players) {
@@ -309,9 +311,9 @@ export function PawnLayer({
           continue;
         }
 
-        // Knocked back to the yard — the impact happened where it stood
+        // Knocked back to the yard — hold on the square until the capturer lands
         if (prev >= 0 && pawn.progress < 0) {
-          nextHops[pawn.id] = buildReturnHop(fromCell, toCell);
+          returnHops[pawn.id] = buildReturnHop(fromCell, toCell);
           nextBursts.push({
             key: `cap-${pawn.id}-${game.version}`,
             x: fromCell.col + 0.5,
@@ -339,6 +341,19 @@ export function PawnLayer({
       }
     }
 
+    const approach = Math.max(
+      0,
+      ...Object.values(nextHops)
+        .filter((h) => h.kind === 'walk' || h.kind === 'enter')
+        .map((h) => h.duration),
+    );
+    for (const [id, hop] of Object.entries(returnHops)) {
+      nextHops[id] = holdThen(hop, approach);
+    }
+    for (const burst of nextBursts) {
+      if (burst.kind === 'capture') burst.delay = approach;
+    }
+
     if (Object.keys(nextHops).length === 0 && nextBursts.length === 0) return;
 
     const timers: number[] = [];
@@ -347,13 +362,16 @@ export function PawnLayer({
       setHops((h) => ({ ...h, ...nextHops }));
       for (const [id, hop] of Object.entries(nextHops)) {
         timers.push(
-          window.setTimeout(() => {
-            setHops((h) => {
-              const copy = { ...h };
-              delete copy[id];
-              return copy;
-            });
-          }, hop.duration * 1000 + 40),
+          window.setTimeout(
+            () => {
+              setHops((h) => {
+                const copy = { ...h };
+                delete copy[id];
+                return copy;
+              });
+            },
+            hop.duration * 1000 + 40,
+          ),
         );
       }
     }
@@ -362,9 +380,12 @@ export function PawnLayer({
       setBursts((b) => [...b, ...nextBursts]);
       const keys = new Set(nextBursts.map((b) => b.key));
       timers.push(
-        window.setTimeout(() => {
-          setBursts((b) => b.filter((x) => !keys.has(x.key)));
-        }, 900),
+        window.setTimeout(
+          () => {
+            setBursts((b) => b.filter((x) => !keys.has(x.key)));
+          },
+          900 + Math.max(0, ...nextBursts.map((b) => (b.delay ?? 0) * 1000)),
+        ),
       );
     }
 
@@ -392,9 +413,7 @@ export function PawnLayer({
   const doomedIds = useMemo(() => {
     if (game.phase !== 'waiting_move') return new Set<string>();
     const focus = previewPawnId ?? selectedId;
-    const relevant = focus
-      ? game.legalMoves.filter((m) => m.pawnId === focus)
-      : game.legalMoves;
+    const relevant = focus ? game.legalMoves.filter((m) => m.pawnId === focus) : game.legalMoves;
     return new Set(relevant.flatMap((m) => m.captures));
   }, [game.phase, game.legalMoves, previewPawnId, selectedId]);
 
@@ -414,7 +433,11 @@ export function PawnLayer({
             };
           }
           const stack = stacks.get(pawn.id) ?? { index: 0, count: 1 };
-          const cell = getPawnCell(pawn.seat, pawn.progress, pawn.index, yardSlots.get(pawn.id));
+          const prev = prevProgress.current.get(pawn.id);
+          const cell =
+            pawn.progress < 0 && prev !== undefined && prev >= 0 && !hops[pawn.id]
+              ? getPawnCell(pawn.seat, prev, pawn.index, 0)
+              : getPawnCell(pawn.seat, pawn.progress, pawn.index, yardSlots.get(pawn.id));
           return {
             pawn,
             player,
@@ -425,7 +448,7 @@ export function PawnLayer({
           };
         }),
       ),
-    [game.players, stacks, yardSlots, homeSlots],
+    [game.players, stacks, yardSlots, homeSlots, hops],
   );
 
   // Painter's order: higher on screen draws first so stacks occlude correctly
@@ -579,6 +602,7 @@ export function PawnLayer({
         {/* Impact effects sit above tokens so a capture reads instantly */}
         {bursts.map((burst) => {
           const ramp = SEAT_RAMP[burst.color];
+          const delay = burst.delay ?? 0;
           if (burst.kind === 'capture') {
             return (
               <g key={burst.key} style={{ pointerEvents: 'none' }}>
@@ -589,7 +613,7 @@ export function PawnLayer({
                   stroke={accent.gold}
                   initial={{ r: 0.18, opacity: 0.95, strokeWidth: 0.14 }}
                   animate={{ r: 1.5, opacity: 0, strokeWidth: 0.02 }}
-                  transition={{ duration: 0.62, ease: 'easeOut' }}
+                  transition={{ duration: 0.62, ease: 'easeOut', delay }}
                 />
                 <motion.circle
                   cx={burst.x}
@@ -598,7 +622,7 @@ export function PawnLayer({
                   stroke={ramp.core}
                   initial={{ r: 0.1, opacity: 0.8, strokeWidth: 0.1 }}
                   animate={{ r: 1.05, opacity: 0, strokeWidth: 0.02 }}
-                  transition={{ duration: 0.5, ease: 'easeOut', delay: 0.06 }}
+                  transition={{ duration: 0.5, ease: 'easeOut', delay: delay + 0.06 }}
                 />
                 <motion.circle
                   cx={burst.x}
@@ -606,7 +630,7 @@ export function PawnLayer({
                   fill="#fff"
                   initial={{ r: 0.42, opacity: 0.85 }}
                   animate={{ r: 0.08, opacity: 0 }}
-                  transition={{ duration: 0.28, ease: 'easeOut' }}
+                  transition={{ duration: 0.28, ease: 'easeOut', delay }}
                 />
               </g>
             );

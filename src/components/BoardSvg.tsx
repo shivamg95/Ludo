@@ -24,6 +24,14 @@ function runwayAngle(seat: number): number {
   return (Math.atan2(b.row - a.row, b.col - a.col) * 180) / Math.PI;
 }
 
+const PLATE = { x: 0.04, size: 14.92, rx: 0.8 } as const;
+const INNER = { x: 0.16, size: 14.68, rx: 0.68 } as const;
+const YARD_INSET = 0.2;
+const YARD_RX = PLATE.rx - (YARD_INSET - PLATE.x);
+const WELL_INSET = 0.95;
+const WELL_RX = Math.max(0.22, YARD_RX - (WELL_INSET - YARD_INSET));
+const HUB = { x: 5.9, size: 3.2, rx: 0.42 } as const;
+
 function Chevron({
   x,
   y,
@@ -86,7 +94,15 @@ function SafePlate({
 function StartPad({ cx, cy, color }: { cx: number; cy: number; color: string }) {
   return (
     <g pointerEvents="none">
-      <circle cx={cx} cy={cy} r={0.29} fill="none" stroke={color} strokeWidth={0.05} opacity={0.9} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={0.29}
+        fill="none"
+        stroke={color}
+        strokeWidth={0.05}
+        opacity={0.9}
+      />
       <circle cx={cx} cy={cy} r={0.17} fill={color} opacity={0.28} />
       <path
         d={`M ${cx - 0.09} ${cy + 0.06} L ${cx} ${cy - 0.09} L ${cx + 0.09} ${cy + 0.06}`}
@@ -264,11 +280,11 @@ export function BoardSvg({
     layers.push(
       <g key={`yard-${seat.seat}`} data-testid={`yard-${seat.color}`}>
         <rect
-          x={y.colMin + 0.2}
-          y={y.rowMin + 0.2}
-          width={w - 0.4}
-          height={h - 0.4}
-          rx={0.4}
+          x={y.colMin + YARD_INSET}
+          y={y.rowMin + YARD_INSET}
+          width={w - YARD_INSET * 2}
+          height={h - YARD_INSET * 2}
+          rx={YARD_RX}
           fill={used ? `url(#yard-fill-${seat.color})` : surface.dormant}
           stroke={used ? ramp.core : surface.dormantEdge}
           strokeWidth={used ? (isActive ? 0.09 : 0.055) : 0.03}
@@ -276,11 +292,11 @@ export function BoardSvg({
           filter={used && isActive ? bloom : undefined}
         />
         <rect
-          x={y.colMin + 0.95}
-          y={y.rowMin + 0.95}
-          width={w - 1.9}
-          height={h - 1.9}
-          rx={0.32}
+          x={y.colMin + WELL_INSET}
+          y={y.rowMin + WELL_INSET}
+          width={w - WELL_INSET * 2}
+          height={h - WELL_INSET * 2}
+          rx={WELL_RX}
           fill={surface.well}
           stroke={used ? ramp.core : surface.dormantEdge}
           strokeWidth={0.025}
@@ -319,7 +335,7 @@ export function BoardSvg({
       aria-label="Ludo board"
       data-testid="board-svg"
       data-board-theme={theme}
-      style={{ overflow: 'visible' }}
+      style={{ overflow: 'hidden' }}
     >
       <defs>
         <filter id="board-bloom" x="-30%" y="-30%" width="160%" height="160%">
@@ -359,7 +375,11 @@ export function BoardSvg({
             <linearGradient id={`yard-fill-${c}`} x1="0%" y1="0%" x2="55%" y2="100%">
               <stop offset="0%" stopColor={SEAT_RAMP[c].core} stopOpacity="0.2" />
               <stop offset="55%" stopColor={SEAT_RAMP[c].deep} stopOpacity="0.34" />
-              <stop offset="100%" stopColor={surface.yardDeep} stopOpacity={surface.yardDeepOpacity} />
+              <stop
+                offset="100%"
+                stopColor={surface.yardDeep}
+                stopOpacity={surface.yardDeepOpacity}
+              />
             </linearGradient>
             <radialGradient
               id={`hub-${c}`}
@@ -369,192 +389,218 @@ export function BoardSvg({
               r="2.12"
             >
               <stop offset="0%" stopColor={surface.hubWell} stopOpacity={surface.hubWellOpacity} />
-              <stop offset="45%" stopColor={SEAT_RAMP[c].deep} stopOpacity={surface.hubDeepOpacity} />
+              <stop
+                offset="45%"
+                stopColor={SEAT_RAMP[c].deep}
+                stopOpacity={surface.hubDeepOpacity}
+              />
               <stop offset="82%" stopColor={SEAT_RAMP[c].core} stopOpacity="0.42" />
               <stop offset="100%" stopColor={SEAT_RAMP[c].core} stopOpacity="0.72" />
             </radialGradient>
           </Fragment>
         ))}
 
+        <clipPath id="board-clip">
+          <rect x={PLATE.x} y={PLATE.x} width={PLATE.size} height={PLATE.size} rx={PLATE.rx} />
+        </clipPath>
         <clipPath id="hub-clip">
-          <rect x={6} y={6} width={3} height={3} rx={0.35} />
+          <rect x={HUB.x} y={HUB.x} width={HUB.size} height={HUB.size} rx={HUB.rx} />
         </clipPath>
       </defs>
 
       {/* Board plate */}
-      <rect x={0.04} y={0.04} width={14.92} height={14.92} rx={0.8} fill="url(#board-plate)" />
       <rect
-        x={0.04}
-        y={0.04}
-        width={14.92}
-        height={14.92}
-        rx={0.8}
+        x={PLATE.x}
+        y={PLATE.x}
+        width={PLATE.size}
+        height={PLATE.size}
+        rx={PLATE.rx}
+        fill="url(#board-plate)"
+      />
+      <rect
+        x={PLATE.x}
+        y={PLATE.x}
+        width={PLATE.size}
+        height={PLATE.size}
+        rx={PLATE.rx}
         fill="none"
         stroke={accent.core}
         strokeWidth={0.06}
         opacity={0.3}
       />
-      <rect
-        x={0.16}
-        y={0.16}
-        width={14.68}
-        height={14.68}
-        rx={0.68}
-        fill="none"
-        stroke={surface.innerStroke}
-        strokeWidth={0.03}
-      />
 
-      {/* Raised plus-shaped road so the track reads as a path, not scattered tiles */}
-      <g pointerEvents="none">
-        <rect x={0.5} y={5.94} width={14} height={3.12} rx={0.3} fill={surface.track} />
-        <rect x={5.94} y={0.5} width={3.12} height={14} rx={0.3} fill={surface.track} />
+      <g clipPath="url(#board-clip)">
         <rect
-          x={0.5}
-          y={5.94}
-          width={14}
-          height={3.12}
-          rx={0.3}
+          x={INNER.x}
+          y={INNER.x}
+          width={INNER.size}
+          height={INNER.size}
+          rx={INNER.rx}
           fill="none"
-          stroke={surface.trackStroke}
+          stroke={surface.innerStroke}
           strokeWidth={0.03}
         />
-        <rect
-          x={5.94}
-          y={0.5}
-          width={3.12}
-          height={14}
-          rx={0.3}
-          fill="none"
-          stroke={surface.trackStroke}
-          strokeWidth={0.03}
-        />
-      </g>
 
-      {layers}
+        {/* Raised plus-shaped road so the track reads as a path, not scattered tiles */}
+        <g pointerEvents="none">
+          <rect x={0.5} y={5.94} width={14} height={3.12} rx={0.3} fill={surface.track} />
+          <rect x={5.94} y={0.5} width={3.12} height={14} rx={0.3} fill={surface.track} />
+          <rect
+            x={0.5}
+            y={5.94}
+            width={14}
+            height={3.12}
+            rx={0.3}
+            fill="none"
+            stroke={surface.trackStroke}
+            strokeWidth={0.03}
+          />
+          <rect
+            x={5.94}
+            y={0.5}
+            width={3.12}
+            height={14}
+            rx={0.3}
+            fill="none"
+            stroke={surface.trackStroke}
+            strokeWidth={0.03}
+          />
+        </g>
 
-      {/* Hub */}
-      <g>
-        <rect x={5.9} y={5.9} width={3.2} height={3.2} rx={0.42} fill={surface.hub} />
-        {hub.map((t) => {
-          const used = live.has(t.seat);
-          const color = SEATS[t.seat]!.color;
-          const ramp = SEAT_RAMP[color];
-          const isActive = activeSeat === t.seat;
+        {layers}
+
+        {/* Hub */}
+        <g>
+          <rect
+            x={HUB.x}
+            y={HUB.x}
+            width={HUB.size}
+            height={HUB.size}
+            rx={HUB.rx}
+            fill={surface.hub}
+          />
+          <g clipPath="url(#hub-clip)">
+            {hub.map((t) => {
+              const used = live.has(t.seat);
+              const color = SEATS[t.seat]!.color;
+              const ramp = SEAT_RAMP[color];
+              const isActive = activeSeat === t.seat;
+              return (
+                <g key={t.seat}>
+                  <polygon
+                    points={t.points}
+                    fill={used ? `url(#hub-${color})` : surface.dormant}
+                    opacity={used ? 1 : 0.55}
+                  />
+                  <polygon
+                    points={t.points}
+                    fill="none"
+                    stroke={used ? ramp.core : surface.dormantEdge}
+                    strokeWidth={used ? (isActive ? 0.07 : 0.045) : 0.025}
+                    strokeLinejoin="round"
+                    opacity={used ? (isActive ? 1 : 0.75) : 1}
+                    filter={used && isActive ? bloom : undefined}
+                  />
+                </g>
+              );
+            })}
+          </g>
+          <rect
+            x={HUB.x}
+            y={HUB.x}
+            width={HUB.size}
+            height={HUB.size}
+            rx={HUB.rx}
+            fill="none"
+            stroke={accent.core}
+            strokeWidth={0.045}
+            opacity={0.4}
+          />
+          <g clipPath="url(#hub-clip)">
+            <motion.rect
+              x={5.9}
+              y={5.9}
+              width={0.9}
+              height={3.2}
+              fill="url(#hub-shine)"
+              opacity={0.28}
+              initial={false}
+              animate={reduced ? { x: 5.9 } : { x: [5.6, 9.1] }}
+              transition={
+                reduced
+                  ? { duration: 0 }
+                  : { duration: 3.6, repeat: Infinity, repeatDelay: 2.2, ease: 'easeInOut' }
+              }
+            />
+          </g>
+          <g filter={bloom ? 'url(#hub-bloom)' : undefined}>
+            <circle
+              cx={7.5}
+              cy={7.5}
+              r={0.32}
+              fill={surface.jewel}
+              stroke={accent.core}
+              strokeWidth={0.05}
+            />
+            <motion.circle
+              cx={7.5}
+              cy={7.5}
+              r={0.17}
+              fill={accent.core}
+              initial={false}
+              animate={reduced ? { opacity: 0.9 } : { opacity: [0.5, 1, 0.5] }}
+              transition={
+                reduced ? { duration: 0 } : { duration: 2.8, repeat: Infinity, ease: 'easeInOut' }
+              }
+            />
+          </g>
+        </g>
+
+        {/* Quick-mode home locks */}
+        {lockedSeats.map((seat) => {
+          const first = SEATS[seat]!.homeColumn[0]!;
+          const ramp = SEAT_RAMP[SEATS[seat]!.color];
           return (
-            <g key={t.seat}>
-              <polygon
-                points={t.points}
-                fill={used ? `url(#hub-${color})` : surface.dormant}
-                opacity={used ? 1 : 0.55}
+            <g key={`lock-${seat}`} data-testid={`home-lock-${SEATS[seat]!.color}`}>
+              <rect
+                x={first.col + 0.12}
+                y={first.row + 0.12}
+                width={0.76}
+                height={0.76}
+                rx={0.16}
+                fill={surface.lockPlate}
+                stroke={ramp.core}
+                strokeWidth={0.04}
+                opacity={0.95}
               />
-              <polygon
-                points={t.points}
+              <rect
+                x={first.col + 0.34}
+                y={first.row + 0.46}
+                width={0.32}
+                height={0.24}
+                rx={0.05}
+                fill={accent.gold}
+              />
+              <path
+                d={`M ${first.col + 0.39} ${first.row + 0.46} v -0.1 a 0.11 0.11 0 0 1 0.22 0 v 0.1`}
                 fill="none"
-                stroke={used ? ramp.core : surface.dormantEdge}
-                strokeWidth={used ? (isActive ? 0.07 : 0.045) : 0.025}
-                strokeLinejoin="round"
-                opacity={used ? (isActive ? 1 : 0.75) : 1}
-                filter={used && isActive ? bloom : undefined}
+                stroke={accent.gold}
+                strokeWidth={0.045}
               />
             </g>
           );
         })}
+
         <rect
-          x={5.9}
-          y={5.9}
-          width={3.2}
-          height={3.2}
-          rx={0.42}
-          fill="none"
-          stroke={accent.core}
-          strokeWidth={0.045}
-          opacity={0.4}
+          x={PLATE.x}
+          y={PLATE.x}
+          width={PLATE.size}
+          height={PLATE.size}
+          rx={PLATE.rx}
+          fill="url(#board-vignette)"
+          pointerEvents="none"
         />
-        <g clipPath="url(#hub-clip)">
-          <motion.rect
-            x={5.9}
-            y={5.9}
-            width={0.9}
-            height={3.2}
-            fill="url(#hub-shine)"
-            opacity={0.28}
-            initial={false}
-            animate={reduced ? { x: 5.9 } : { x: [5.6, 9.1] }}
-            transition={
-              reduced
-                ? { duration: 0 }
-                : { duration: 3.6, repeat: Infinity, repeatDelay: 2.2, ease: 'easeInOut' }
-            }
-          />
-        </g>
-        <g filter={bloom ? 'url(#hub-bloom)' : undefined}>
-          <circle
-            cx={7.5}
-            cy={7.5}
-            r={0.32}
-            fill={surface.jewel}
-            stroke={accent.core}
-            strokeWidth={0.05}
-          />
-          <motion.circle
-            cx={7.5}
-            cy={7.5}
-            r={0.17}
-            fill={accent.core}
-            initial={false}
-            animate={reduced ? { opacity: 0.9 } : { opacity: [0.5, 1, 0.5] }}
-            transition={
-              reduced ? { duration: 0 } : { duration: 2.8, repeat: Infinity, ease: 'easeInOut' }
-            }
-          />
-        </g>
       </g>
-
-      {/* Quick-mode home locks */}
-      {lockedSeats.map((seat) => {
-        const first = SEATS[seat]!.homeColumn[0]!;
-        const ramp = SEAT_RAMP[SEATS[seat]!.color];
-        return (
-          <g key={`lock-${seat}`} data-testid={`home-lock-${SEATS[seat]!.color}`}>
-            <rect
-              x={first.col + 0.12}
-              y={first.row + 0.12}
-              width={0.76}
-              height={0.76}
-              rx={0.16}
-              fill={surface.lockPlate}
-              stroke={ramp.core}
-              strokeWidth={0.04}
-              opacity={0.95}
-            />
-            <rect
-              x={first.col + 0.34}
-              y={first.row + 0.46}
-              width={0.32}
-              height={0.24}
-              rx={0.05}
-              fill={accent.gold}
-            />
-            <path
-              d={`M ${first.col + 0.39} ${first.row + 0.46} v -0.1 a 0.11 0.11 0 0 1 0.22 0 v 0.1`}
-              fill="none"
-              stroke={accent.gold}
-              strokeWidth={0.045}
-            />
-          </g>
-        );
-      })}
-
-      <rect
-        x={0.04}
-        y={0.04}
-        width={14.92}
-        height={14.92}
-        rx={0.8}
-        fill="url(#board-vignette)"
-        pointerEvents="none"
-      />
     </svg>
   );
 }

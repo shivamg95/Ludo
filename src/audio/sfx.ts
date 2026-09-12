@@ -24,11 +24,11 @@ function getCtx(): AudioContext | null {
       // Bus: master trim -> limiter -> out. The limiter is what lets each cue
       // stay punchy without the sum of them distorting.
       const gain = ctx.createGain();
-      gain.gain.value = 0.5;
+      gain.gain.value = 1;
       const limiter = ctx.createDynamicsCompressor();
-      limiter.threshold.value = -8;
+      limiter.threshold.value = -3;
       limiter.knee.value = 6;
-      limiter.ratio.value = 12;
+      limiter.ratio.value = 6;
       limiter.attack.value = 0.003;
       limiter.release.value = 0.18;
       gain.connect(limiter);
@@ -145,30 +145,86 @@ function haptic(pattern: number | number[]) {
 const CUES: Record<Sfx, (ac: AudioContext) => void> = {
   // Dice tumbling in a cup: three filtered noise slaps over a low body
   roll: (ac) => {
-    noise(ac, { freq: 1800, to: 900, q: 1.2, env: { attack: 0.004, decay: 0.1, release: 0.12, peak: 0.34 } });
-    noise(ac, { at: 0.09, freq: 2600, to: 1200, q: 2, env: { attack: 0.003, decay: 0.06, release: 0.08, peak: 0.26 } });
-    noise(ac, { at: 0.19, freq: 3200, to: 1500, q: 2.4, env: { attack: 0.003, decay: 0.05, release: 0.09, peak: 0.2 } });
-    tone(ac, { type: 'triangle', freq: 150, to: 96, env: { attack: 0.004, decay: 0.16, release: 0.1, peak: 0.22 } });
+    noise(ac, {
+      freq: 1800,
+      to: 900,
+      q: 1.2,
+      env: { attack: 0.004, decay: 0.1, release: 0.12, peak: 0.48 },
+    });
+    noise(ac, {
+      at: 0.09,
+      freq: 2600,
+      to: 1200,
+      q: 2,
+      env: { attack: 0.003, decay: 0.06, release: 0.08, peak: 0.36 },
+    });
+    noise(ac, {
+      at: 0.19,
+      freq: 3200,
+      to: 1500,
+      q: 2.4,
+      env: { attack: 0.003, decay: 0.05, release: 0.09, peak: 0.28 },
+    });
+    tone(ac, {
+      type: 'triangle',
+      freq: 150,
+      to: 96,
+      env: { attack: 0.004, decay: 0.16, release: 0.1, peak: 0.32 },
+    });
     haptic(18);
   },
 
   // A token setting down — soft, frequent, must never fatigue
   move: (ac) => {
-    tone(ac, { type: 'triangle', freq: 520, to: 380, env: { attack: 0.004, decay: 0.07, release: 0.06, peak: 0.16 } });
-    noise(ac, { freq: 3200, q: 1.4, env: { attack: 0.002, decay: 0.03, release: 0.03, peak: 0.06 } });
+    tone(ac, {
+      type: 'triangle',
+      freq: 520,
+      to: 380,
+      env: { attack: 0.004, decay: 0.07, release: 0.06, peak: 0.4 },
+    });
+    noise(ac, {
+      freq: 3200,
+      q: 1.4,
+      env: { attack: 0.002, decay: 0.03, release: 0.03, peak: 0.16 },
+    });
   },
 
   // One click per hop step: tiny, dry, pitched above the move blip
   tick: (ac) => {
-    tone(ac, { type: 'square', freq: 880, env: { attack: 0.001, decay: 0.02, release: 0.02, peak: 0.05 } });
-    noise(ac, { type: 'highpass', freq: 4200, env: { attack: 0.001, decay: 0.012, release: 0.014, peak: 0.05 } });
+    tone(ac, {
+      type: 'square',
+      freq: 880,
+      env: { attack: 0.001, decay: 0.02, release: 0.02, peak: 0.16 },
+    });
+    noise(ac, {
+      type: 'highpass',
+      freq: 4200,
+      env: { attack: 0.001, decay: 0.012, release: 0.014, peak: 0.14 },
+    });
   },
 
   // Capture: body blow plus debris, then a short metallic ring
   capture: (ac) => {
-    tone(ac, { type: 'sine', freq: 180, to: 44, env: { attack: 0.004, decay: 0.22, release: 0.16, peak: 0.7 } });
-    noise(ac, { type: 'lowpass', freq: 2400, to: 400, q: 0.8, env: { attack: 0.002, decay: 0.12, release: 0.2, peak: 0.4 } });
-    tone(ac, { type: 'square', freq: 320, to: 210, at: 0.03, env: { attack: 0.003, decay: 0.1, release: 0.14, peak: 0.16 } });
+    tone(ac, {
+      type: 'sine',
+      freq: 180,
+      to: 44,
+      env: { attack: 0.004, decay: 0.22, release: 0.16, peak: 0.82 },
+    });
+    noise(ac, {
+      type: 'lowpass',
+      freq: 2400,
+      to: 400,
+      q: 0.8,
+      env: { attack: 0.002, decay: 0.12, release: 0.2, peak: 0.5 },
+    });
+    tone(ac, {
+      type: 'square',
+      freq: 320,
+      to: 210,
+      at: 0.03,
+      env: { attack: 0.003, decay: 0.1, release: 0.14, peak: 0.24 },
+    });
     haptic([0, 26, 40, 18]);
   },
 
@@ -179,23 +235,38 @@ const CUES: Record<Sfx, (ac: AudioContext) => void> = {
         type: 'triangle',
         freq: f,
         at: i * 0.075,
-        env: { attack: 0.006, decay: 0.13, release: 0.22, peak: 0.34, sustain: 0.25 },
+        env: { attack: 0.006, decay: 0.13, release: 0.22, peak: 0.46, sustain: 0.25 },
       });
       tone(ac, {
         type: 'sine',
         freq: f * 2,
         at: i * 0.075,
-        env: { attack: 0.006, decay: 0.1, release: 0.16, peak: 0.1 },
+        env: { attack: 0.006, decay: 0.1, release: 0.16, peak: 0.16 },
       });
     });
-    noise(ac, { at: 0.24, freq: 5200, to: 9000, q: 0.7, env: { attack: 0.02, decay: 0.2, release: 0.3, peak: 0.1 } });
+    noise(ac, {
+      at: 0.24,
+      freq: 5200,
+      to: 9000,
+      q: 0.7,
+      env: { attack: 0.02, decay: 0.2, release: 0.3, peak: 0.16 },
+    });
     haptic([0, 20, 60, 40]);
   },
 
   // Extra turn: two-note lift, deliberately smaller than home
   extra: (ac) => {
-    tone(ac, { type: 'triangle', freq: 659.25, env: { attack: 0.005, decay: 0.08, release: 0.1, peak: 0.24 } });
-    tone(ac, { type: 'triangle', freq: 987.77, at: 0.08, env: { attack: 0.005, decay: 0.1, release: 0.14, peak: 0.24 } });
+    tone(ac, {
+      type: 'triangle',
+      freq: 659.25,
+      env: { attack: 0.005, decay: 0.08, release: 0.1, peak: 0.38 },
+    });
+    tone(ac, {
+      type: 'triangle',
+      freq: 987.77,
+      at: 0.08,
+      env: { attack: 0.005, decay: 0.1, release: 0.14, peak: 0.38 },
+    });
   },
 
   // Three sixes: impact thump, falling buzzer, debris whoosh
@@ -204,27 +275,27 @@ const CUES: Record<Sfx, (ac: AudioContext) => void> = {
       type: 'sine',
       freq: 90,
       to: 32,
-      env: { attack: 0.004, decay: 0.28, release: 0.22, peak: 0.72 },
+      env: { attack: 0.004, decay: 0.28, release: 0.22, peak: 0.85 },
     });
     noise(ac, {
       type: 'lowpass',
       freq: 1400,
       to: 180,
       q: 0.7,
-      env: { attack: 0.003, decay: 0.18, release: 0.22, peak: 0.42 },
+      env: { attack: 0.003, decay: 0.18, release: 0.22, peak: 0.52 },
     });
     tone(ac, {
       type: 'sawtooth',
       freq: 420,
       to: 90,
-      env: { attack: 0.01, decay: 0.48, release: 0.3, peak: 0.34 },
+      env: { attack: 0.01, decay: 0.48, release: 0.3, peak: 0.42 },
     });
     tone(ac, {
       type: 'square',
       freq: 210,
       to: 70,
       at: 0.04,
-      env: { attack: 0.008, decay: 0.4, release: 0.26, peak: 0.2 },
+      env: { attack: 0.008, decay: 0.4, release: 0.26, peak: 0.28 },
     });
     noise(ac, {
       at: 0.08,
@@ -232,7 +303,7 @@ const CUES: Record<Sfx, (ac: AudioContext) => void> = {
       freq: 2200,
       to: 280,
       q: 0.6,
-      env: { attack: 0.02, decay: 0.28, release: 0.32, peak: 0.22 },
+      env: { attack: 0.02, decay: 0.28, release: 0.32, peak: 0.3 },
     });
     haptic([0, 50, 40, 80, 30, 50, 90]);
   },
@@ -244,11 +315,21 @@ const CUES: Record<Sfx, (ac: AudioContext) => void> = {
         type: 'triangle',
         freq: f,
         at: i * 0.11,
-        env: { attack: 0.008, decay: 0.16, release: 0.34, peak: 0.36, sustain: 0.3, hold: 0.04 },
+        env: { attack: 0.008, decay: 0.16, release: 0.34, peak: 0.48, sustain: 0.3, hold: 0.04 },
       });
     });
-    tone(ac, { type: 'sine', freq: 130.81, env: { attack: 0.02, decay: 0.4, release: 0.5, peak: 0.3, sustain: 0.4 } });
-    noise(ac, { at: 0.44, freq: 6000, to: 11000, q: 0.6, env: { attack: 0.03, decay: 0.3, release: 0.4, peak: 0.12 } });
+    tone(ac, {
+      type: 'sine',
+      freq: 130.81,
+      env: { attack: 0.02, decay: 0.4, release: 0.5, peak: 0.4, sustain: 0.4 },
+    });
+    noise(ac, {
+      at: 0.44,
+      freq: 6000,
+      to: 11000,
+      q: 0.6,
+      env: { attack: 0.03, decay: 0.3, release: 0.4, peak: 0.18 },
+    });
     haptic([0, 30, 50, 30, 50, 60]);
   },
 };
@@ -272,13 +353,13 @@ export function playHopTicks(steps: number, stepMs: number) {
       type: 'square',
       freq: 760 + i * 28,
       at: (i * stepMs) / 1000,
-      env: { attack: 0.001, decay: 0.022, release: 0.02, peak: 0.05 },
+      env: { attack: 0.001, decay: 0.022, release: 0.02, peak: 0.16 },
     });
     noise(ac, {
       type: 'highpass',
       freq: 4200,
       at: (i * stepMs) / 1000,
-      env: { attack: 0.001, decay: 0.012, release: 0.014, peak: 0.045 },
+      env: { attack: 0.001, decay: 0.012, release: 0.014, peak: 0.14 },
     });
   }
 }

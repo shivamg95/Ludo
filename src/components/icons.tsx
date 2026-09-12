@@ -57,6 +57,15 @@ export function TrophyIcon() {
   );
 }
 
+export function RefreshIcon() {
+  return (
+    <svg {...base}>
+      <path d="M4 12a8 8 0 1 0 2.6-5.9" />
+      <path d="M4 4v4h4" />
+    </svg>
+  );
+}
+
 export function ReplayIcon() {
   return (
     <svg {...base}>

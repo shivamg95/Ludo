@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { peekSavedGame, useAppStore, type SavedGameSummary } from '../store/gameStore';
 import { seatsForPlayerCount, SEATS } from '../engine/board';
 import type { GameMode } from '../engine/types';
 import { SEAT_RAMP, ACCENT } from '../theme/seats';
 import { DUR, SPRING, useReducedMotion } from '../ui/motion';
-import { PlayIcon, SoundOffIcon, SoundOnIcon } from './icons';
+import { PlayIcon, RefreshIcon, SoundOffIcon, SoundOnIcon } from './icons';
+import { usePwaUpdate } from '../pwa';
 
 const MODES: { id: GameMode; title: string; blurb: string }[] = [
   { id: 'classic', title: 'Classic', blurb: 'Race all four home. Play on for places.' },
@@ -46,7 +47,14 @@ function ModeArt({ mode, active }: { mode: GameMode; active: boolean }) {
   if (mode === 'timed') {
     return (
       <svg viewBox="0 0 120 64" className="mode-art" aria-hidden>
-        <circle cx="60" cy="32" r="20" fill="none" stroke="rgba(150,190,255,0.16)" strokeWidth="4" />
+        <circle
+          cx="60"
+          cy="32"
+          r="20"
+          fill="none"
+          stroke="rgba(150,190,255,0.16)"
+          strokeWidth="4"
+        />
         <motion.circle
           cx="60"
           cy="32"
@@ -94,7 +102,11 @@ function ModeArt({ mode, active }: { mode: GameMode; active: boolean }) {
         r={7}
         fill={SEAT_RAMP.yellow.core}
         initial={false}
-        animate={reduced || !active ? { opacity: 1, scale: 1 } : { opacity: [1, 1, 0, 1], scale: [1, 1, 1.6, 1] }}
+        animate={
+          reduced || !active
+            ? { opacity: 1, scale: 1 }
+            : { opacity: [1, 1, 0, 1], scale: [1, 1, 1.6, 1] }
+        }
         transition={loop(2.4)}
         style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
       />
@@ -106,7 +118,9 @@ function ModeArt({ mode, active }: { mode: GameMode; active: boolean }) {
         stroke={ACCENT.gold}
         strokeWidth={2}
         initial={false}
-        animate={reduced || !active ? { opacity: 0 } : { opacity: [0, 0, 0.9, 0], r: [7, 7, 20, 7] }}
+        animate={
+          reduced || !active ? { opacity: 0 } : { opacity: [0, 0, 0.9, 0], r: [7, 7, 20, 7] }
+        }
         transition={loop(2.4)}
       />
       <path d="M92 20 h14 v24 h-14 z" fill="none" stroke={ACCENT.core} strokeWidth="2" rx="2" />
@@ -148,13 +162,25 @@ function Stepper({
     <div className="stepper-row">
       <span className="stepper-label">{label}</span>
       <div className="stepper">
-        <button type="button" className="stepper-btn" onClick={onDec} data-testid={decTestId} aria-label={decLabel}>
+        <button
+          type="button"
+          className="stepper-btn"
+          onClick={onDec}
+          data-testid={decTestId}
+          aria-label={decLabel}
+        >
           −
         </button>
         <span className="stepper-value" data-testid={valueTestId}>
           {value}
         </span>
-        <button type="button" className="stepper-btn" onClick={onInc} data-testid={incTestId} aria-label={incLabel}>
+        <button
+          type="button"
+          className="stepper-btn"
+          onClick={onInc}
+          data-testid={incTestId}
+          aria-label={incLabel}
+        >
           +
         </button>
       </div>
@@ -173,6 +199,7 @@ export function SetupScreen() {
   const muted = useAppStore((s) => s.muted);
   const setMuted = useAppStore((s) => s.setMuted);
   const reduced = useReducedMotion();
+  const { version, status, check } = usePwaUpdate();
 
   const [saved, setSaved] = useState<SavedGameSummary | null>(null);
   useEffect(() => setSaved(peekSavedGame()), []);
@@ -205,8 +232,26 @@ export function SetupScreen() {
               Ludo
             </h1>
             <p className="brand-sub">Classic · X-Minute · Quick</p>
+            <p className="app-version" data-testid="app-version">
+              v{version}
+            </p>
+            {(status === 'checking' || status === 'current' || status === 'unavailable') && (
+              <p className="update-status" data-testid="update-status" aria-live="polite">
+                {status === 'checking' ? 'Checking for updates…' : "You're up to date"}
+              </p>
+            )}
           </div>
           <div className="setup-hero-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => void check()}
+              disabled={status === 'checking'}
+              aria-label="Check for updates"
+              data-testid="check-updates"
+            >
+              <RefreshIcon />
+            </button>
             <button
               type="button"
               className="icon-btn"
@@ -267,80 +312,80 @@ export function SetupScreen() {
             {MODES.map((m) => {
               const active = setup.mode === m.id;
               return (
-                <motion.button
-                  key={m.id}
-                  type="button"
-                  whileHover={reduced ? undefined : { y: -3 }}
-                  whileTap={reduced ? undefined : { scale: 0.985 }}
-                  transition={SPRING.tight}
-                  onClick={() => setSetup({ mode: m.id })}
-                  className="mode-card"
-                  data-active={active ? 'true' : 'false'}
-                  data-testid={`mode-${m.id}`}
-                  aria-pressed={active}
-                >
-                  <span className="mode-art-frame">
-                    <ModeArt mode={m.id} active={active} />
-                  </span>
-                  <span className="mode-title">{m.title}</span>
-                  <span className="mode-blurb">{m.blurb}</span>
-                </motion.button>
+                <Fragment key={m.id}>
+                  <motion.button
+                    type="button"
+                    whileHover={reduced ? undefined : { y: -3 }}
+                    whileTap={reduced ? undefined : { scale: 0.985 }}
+                    transition={SPRING.tight}
+                    onClick={() => setSetup({ mode: m.id })}
+                    className="mode-card"
+                    data-active={active ? 'true' : 'false'}
+                    data-testid={`mode-${m.id}`}
+                    aria-pressed={active}
+                  >
+                    <span className="mode-art-frame">
+                      <ModeArt mode={m.id} active={active} />
+                    </span>
+                    <span className="mode-title">{m.title}</span>
+                    <span className="mode-blurb">{m.blurb}</span>
+                  </motion.button>
+                  {m.id === 'timed' && setup.mode === 'timed' && (
+                    <motion.div
+                      className="duration-panel"
+                      data-testid="duration-panel"
+                      initial={reduced ? false : { opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      transition={{ duration: DUR.base, ease: 'easeOut' }}
+                    >
+                      <p className="setup-heading">Duration</p>
+                      <div className="chip-row">
+                        {DURATION_PRESETS.map((mins) => (
+                          <button
+                            key={mins}
+                            type="button"
+                            className="chip"
+                            data-active={setup.durationMin === mins ? 'true' : 'false'}
+                            onClick={() => setSetup({ durationMin: mins })}
+                            data-testid={`duration-${mins}`}
+                          >
+                            {mins}m
+                          </button>
+                        ))}
+                      </div>
+                      <div className="setup-field-row">
+                        <label className="setup-field">
+                          <span>Custom (1–30)</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={setup.durationMin}
+                            onChange={(e) =>
+                              setSetup({
+                                durationMin: Math.max(1, Math.min(30, Number(e.target.value) || 1)),
+                              })
+                            }
+                            className="text-input w-20"
+                            data-testid="duration-custom"
+                          />
+                        </label>
+                        <label className="setup-toggle">
+                          <input
+                            type="checkbox"
+                            checked={setup.turnTimerEnabled}
+                            onChange={(e) => setSetup({ turnTimerEnabled: e.target.checked })}
+                            data-testid="turn-timer-toggle"
+                          />
+                          20s turn timer
+                        </label>
+                      </div>
+                    </motion.div>
+                  )}
+                </Fragment>
               );
             })}
           </div>
-
-          {setup.mode === 'timed' && (
-            <motion.div
-              className="duration-panel"
-              data-testid="duration-panel"
-              initial={reduced ? false : { opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              transition={{ duration: DUR.base, ease: 'easeOut' }}
-            >
-              <p className="setup-heading">Duration</p>
-              <div className="chip-row">
-                {DURATION_PRESETS.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className="chip"
-                    data-active={setup.durationMin === m ? 'true' : 'false'}
-                    onClick={() => setSetup({ durationMin: m })}
-                    data-testid={`duration-${m}`}
-                  >
-                    {m}m
-                  </button>
-                ))}
-              </div>
-              <div className="setup-field-row">
-                <label className="setup-field">
-                  <span>Custom (1–30)</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={30}
-                    value={setup.durationMin}
-                    onChange={(e) =>
-                      setSetup({
-                        durationMin: Math.max(1, Math.min(30, Number(e.target.value) || 1)),
-                      })
-                    }
-                    className="text-input w-20"
-                    data-testid="duration-custom"
-                  />
-                </label>
-                <label className="setup-toggle">
-                  <input
-                    type="checkbox"
-                    checked={setup.turnTimerEnabled}
-                    onChange={(e) => setSetup({ turnTimerEnabled: e.target.checked })}
-                    data-testid="turn-timer-toggle"
-                  />
-                  20s turn timer
-                </label>
-              </div>
-            </motion.div>
-          )}
         </motion.section>
 
         <motion.section className="setup-section players-panel panel" {...rise(0.12)}>
@@ -384,7 +429,9 @@ export function SetupScreen() {
                   <input
                     className="text-input flex-1"
                     value={setup.names[seat] ?? color}
-                    onChange={(e) => setSetup({ names: { ...setup.names, [seat]: e.target.value } })}
+                    onChange={(e) =>
+                      setSetup({ names: { ...setup.names, [seat]: e.target.value } })
+                    }
                     disabled={isBot}
                     data-testid={`name-${color}`}
                     aria-label={`${color} name`}
