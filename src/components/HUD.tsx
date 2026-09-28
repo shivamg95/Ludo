@@ -4,8 +4,12 @@ import { SEATS } from '../engine/board';
 import { formatEvent, playerProgressPercent } from '../engine/selectors';
 import { Dice } from './Dice';
 import { lastRollValue } from '../ui/useGameEvents';
+import type { RollReveal } from '../store/gameStore';
+import { ordinal } from '../ui/ordinal';
 import { SPRING, DUR } from '../ui/motion';
-import { LogIcon, QuitIcon, SoundOffIcon, SoundOnIcon } from './icons';
+import { LogIcon, QuitIcon, SettingsIcon, SoundOffIcon, SoundOnIcon } from './icons';
+import { PawnSkinPicker } from './PawnSkinPicker';
+import { useAppStore } from '../store/gameStore';
 
 function formatMs(ms: number | null): string {
   if (ms === null) return '';
@@ -84,7 +88,16 @@ export function SeatPod({
         </span>
       )}
       {player.finishedRank !== null && (
-        <span className="seat-pod-badge seat-pod-badge-done">Finished #{player.finishedRank}</span>
+        <span
+          className="seat-pod-medal"
+          data-rank={Math.min(player.finishedRank, 4)}
+          data-testid={`medal-${player.color}`}
+        >
+          <span className="seat-pod-medal-disc" aria-hidden>
+            {player.finishedRank}
+          </span>
+          {ordinal(player.finishedRank)}
+        </span>
       )}
     </motion.div>
   );
@@ -98,34 +111,45 @@ export function TurnDice({
   game,
   onRoll,
   rolling,
+  reveal = null,
   flipped = false,
 }: {
   game: GameState;
   onRoll: () => void;
   rolling: boolean;
+  /** A dead roll still being shown to the player who threw it. */
+  reveal?: RollReveal | null;
   flipped?: boolean;
 }) {
   const currentSeat = game.config.seats[game.currentSeatIndex]!;
   const current = game.players.find((p) => p.seat === currentSeat)!;
-  const canRoll = game.phase === 'waiting_roll' && !game.hardStopped && !rolling;
+  const roller = reveal ? (game.players.find((p) => p.seat === reveal.seat) ?? current) : current;
+  const canRoll = game.phase === 'waiting_roll' && !game.hardStopped && !rolling && !reveal;
 
   return (
-    <div className="turn-dice" data-flip={flipped ? 'true' : 'false'}>
+    <div
+      className="turn-dice"
+      data-flip={flipped ? 'true' : 'false'}
+      data-reveal={reveal ? reveal.reason : undefined}
+    >
       <p className="turn-label" data-testid="turn-label">
-        {rolling
-          ? `${current.name} rolling…`
-          : current.isBot
-            ? `${current.name} thinking…`
-            : `${current.name}'s turn`}
+        {reveal
+          ? `${roller.name} rolled ${reveal.value}`
+          : rolling
+            ? `${current.name} rolling…`
+            : current.isBot
+              ? `${current.name} thinking…`
+              : `${current.name}'s turn`}
       </p>
       <Dice
-        value={game.diceValue}
-        face={lastRollValue(game)}
+        value={reveal ? reveal.value : game.diceValue}
+        face={reveal ? reveal.value : lastRollValue(game)}
         disabled={!canRoll || current.isBot}
         onRoll={onRoll}
         rolling={rolling}
-        seatColor={current.color}
+        seatColor={roller.color}
         waitingLabel={current.isBot ? 'Bot playing' : 'Pick a token'}
+        note={reveal ? (reveal.reason === 'forfeit' ? 'Three sixes' : 'No moves') : undefined}
       />
     </div>
   );
@@ -138,6 +162,8 @@ export function GameTopBar({
   onQuit,
   onToggleLog,
   logOpen,
+  onToggleSettings,
+  settingsOpen,
 }: {
   game: GameState;
   muted: boolean;
@@ -145,6 +171,8 @@ export function GameTopBar({
   onQuit: () => void;
   onToggleLog: () => void;
   logOpen: boolean;
+  onToggleSettings: () => void;
+  settingsOpen: boolean;
 }) {
   return (
     <header className="game-topbar" data-testid="hud">
@@ -158,6 +186,16 @@ export function GameTopBar({
       </div>
 
       <div className="game-topbar-right">
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={onToggleSettings}
+          data-testid="toggle-settings"
+          aria-expanded={settingsOpen}
+          aria-label={settingsOpen ? 'Hide settings' : 'Show settings'}
+        >
+          <SettingsIcon />
+        </button>
         <button
           type="button"
           className="icon-btn"
@@ -188,6 +226,67 @@ export function GameTopBar({
         </button>
       </div>
     </header>
+  );
+}
+
+/** In-game settings: pawn style, sound and theme, without leaving the table. */
+export function SettingsSheet({
+  game,
+  open,
+  onClose,
+}: {
+  game: GameState;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const muted = useAppStore((s) => s.muted);
+  const setMuted = useAppStore((s) => s.setMuted);
+  const theme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.aside
+          className="settings-sheet panel"
+          data-testid="settings-sheet"
+          aria-label="Settings"
+          initial={{ opacity: 0, y: -12, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -12, scale: 0.97 }}
+          transition={{ duration: DUR.base, ease: 'easeOut' }}
+        >
+          <div className="log-sheet-head">
+            <span>Settings</span>
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close settings">
+              ✕
+            </button>
+          </div>
+          <p className="settings-label">Pawn style</p>
+          <PawnSkinPicker colors={game.players.map((p) => p.color)} />
+          <div className="settings-row">
+            <button
+              type="button"
+              className="chip settings-chip"
+              data-active={!muted ? 'true' : 'false'}
+              aria-pressed={!muted}
+              onClick={() => setMuted(!muted)}
+            >
+              {muted ? <SoundOffIcon /> : <SoundOnIcon />}
+              {muted ? 'Sound off' : 'Sound on'}
+            </button>
+            <button
+              type="button"
+              className="chip settings-chip"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              data-testid="settings-theme"
+            >
+              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            </button>
+          </div>
+        </motion.aside>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -238,21 +337,5 @@ export function MoveLogSheet({
         </motion.aside>
       )}
     </AnimatePresence>
-  );
-}
-
-export function WinnerBanner({ game }: { game: GameState }) {
-  if (game.winnerBannerSeat === null) return null;
-  const winner = game.players.find((p) => p.seat === game.winnerBannerSeat);
-  return (
-    <motion.div
-      className={`winner-banner seat-${winner?.color ?? 'red'}`}
-      data-testid="winner-banner"
-      initial={{ opacity: 0, y: -12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={SPRING.ui}
-    >
-      {winner?.name} wins
-    </motion.div>
   );
 }

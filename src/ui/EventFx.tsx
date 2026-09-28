@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAppStore } from '../store/gameStore';
 import { AnimatePresence, motion } from 'motion/react';
 import type { GameState, SeatColor } from '../engine/types';
 import { SEATS } from '../engine/board';
@@ -6,7 +7,7 @@ import { BEAT, SPRING, useReducedMotion } from './motion';
 import { eventCaptures, eventReachedHome, useEventStream } from './useGameEvents';
 import { capturerApproachSeconds } from './hop';
 
-type ToastKind = 'capture' | 'home' | 'extra';
+type ToastKind = 'capture' | 'home' | 'extra' | 'nomove';
 
 interface Toast {
   id: number;
@@ -26,6 +27,7 @@ const KIND_LABEL: Record<ToastKind, string> = {
   capture: 'Capture',
   home: 'Home',
   extra: 'Extra turn',
+  nomove: 'No move',
 };
 
 function SixFace() {
@@ -57,6 +59,20 @@ export function EventFx({ game }: { game: GameState | null }) {
     }, BEAT.toast);
   }, []);
 
+  const rollReveal = useAppStore((s) => s.rollReveal);
+  useEffect(() => {
+    if (!rollReveal || rollReveal.reason !== 'no_moves' || !game) return;
+    const player = game.players.find((p) => p.seat === rollReveal.seat);
+    push({
+      kind: 'nomove',
+      color: player?.color ?? SEATS[rollReveal.seat]?.color ?? 'red',
+      headline: 'No valid move',
+      detail: `${player?.name ?? 'Player'} rolled ${rollReveal.value}`,
+    });
+    // Only a new reveal should toast, not every game update during it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rollReveal, push]);
+
   useEventStream(game, (events) => {
     if (!game) return;
 
@@ -81,6 +97,10 @@ export function EventFx({ game }: { game: GameState | null }) {
         const from = Number(event.detail?.from ?? -1);
         const to = Number(event.detail?.to ?? -1);
         const delayMs = reduced ? 0 : capturerApproachSeconds(from, to) * 1000;
+        const extraTurn =
+          isLast &&
+          game.phase === 'waiting_roll' &&
+          game.config.seats[game.currentSeatIndex] === event.seat;
         window.setTimeout(() => {
           push({
             kind: 'capture',
@@ -89,6 +109,12 @@ export function EventFx({ game }: { game: GameState | null }) {
             detail: `${name} sent it home`,
           });
         }, delayMs);
+        if (extraTurn) {
+          window.setTimeout(
+            () => push({ kind: 'extra', color, headline: 'Roll again' }),
+            delayMs + BEAT.afterCapture,
+          );
+        }
         return;
       }
 

@@ -35,6 +35,10 @@ export const BEAT = {
   readRoll: 650,
   autoMove: 340,
   toast: 1600,
+  /** How long a roll with no legal move stays with its roller before the turn passes. */
+  noMove: 1300,
+  /** Gap between a capture landing and the extra-turn cue, so each reads on its own. */
+  afterCapture: 420,
   forfeit: 2400,
 } as const;
 

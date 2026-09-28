@@ -4,8 +4,35 @@ import type { GameConfig, GameState, GameMode } from '../engine/types';
 import { seatsForPlayerCount, SEATS } from '../engine/board';
 import { chooseMove } from '../bot/chooseMove';
 import { playSfx } from '../audio/sfx';
+import { BEAT } from '../ui/motion';
+import { PAWN_SKINS, type PawnSkin } from '../components/pawns/skins';
 
 export type Screen = 'setup' | 'game' | 'results';
+
+/**
+ * A roll that ended the turn on the spot — no legal move, or a third six. The
+ * engine has already passed the turn, so this keeps the die with its roller
+ * long enough for the result to be read.
+ */
+export interface RollReveal {
+  seat: number;
+  value: number;
+  reason: 'no_moves' | 'forfeit';
+}
+
+/** Detects whether a ROLL from `before` produced `after` without leaving a move. */
+export function rollRevealFor(before: GameState, after: GameState): RollReveal | null {
+  if (after.phase === 'finished') return null;
+  const fresh = after.events.slice(before.events.length);
+  const rollEvent = fresh.find((e) => e.type === 'roll');
+  if (!rollEvent) return null;
+  const value = Number(rollEvent.detail?.value);
+  if (fresh.some((e) => e.type === 'three_sixes_forfeit')) {
+    return { seat: rollEvent.seat, value, reason: 'forfeit' };
+  }
+  if (after.phase === 'waiting_roll') return { seat: rollEvent.seat, value, reason: 'no_moves' };
+  return null;
+}
 
 export interface SetupDraft {
   mode: GameMode;
@@ -25,6 +52,8 @@ interface AppState {
   botDelayMs: number;
   animating: boolean;
   rolling: boolean;
+  rollReveal: RollReveal | null;
+  pawnSkin: PawnSkin;
   announcement: string;
   resumed: boolean;
 
@@ -37,6 +66,7 @@ interface AppState {
   setMuted: (muted: boolean) => void;
   setTheme: (theme: 'dark' | 'light') => void;
   setBotDelay: (ms: number) => void;
+  setPawnSkin: (skin: PawnSkin) => void;
   setAnimating: (v: boolean) => void;
   setAnnouncement: (msg: string) => void;
   goSetup: () => void;
@@ -107,7 +137,7 @@ export function peekSavedGame(): SavedGameSummary | null {
   }
 }
 
-type PersistedSettings = Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs'>> & {
+type PersistedSettings = Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs' | 'pawnSkin'>> & {
   names?: Record<number, string>;
 };
 
@@ -139,6 +169,7 @@ function saveSettings(state: AppState) {
       muted: state.muted,
       theme: state.theme,
       botDelayMs: state.botDelayMs,
+      pawnSkin: state.pawnSkin,
       names: state.setup.names,
     }),
   );
@@ -153,6 +184,8 @@ function persistGame(game: GameState | null, screen: Screen) {
 }
 
 const settings = loadSettings();
+
+let revealTimer: number | undefined;
 
 export const useAppStore = create<AppState>((set, get) => ({
   screen: 'setup',
@@ -170,6 +203,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   botDelayMs: settings.botDelayMs && settings.botDelayMs > 0 ? settings.botDelayMs : 650,
   animating: false,
   rolling: false,
+  rollReveal: null,
+  pawnSkin: settings.pawnSkin && PAWN_SKINS.includes(settings.pawnSkin) ? settings.pawnSkin : 'arcade',
   announcement: '',
   resumed: false,
 
@@ -204,7 +239,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       botDelayMs,
       rolling: false,
       animating: false,
+      rollReveal: null,
     });
+    window.clearTimeout(revealTimer);
     document.body.dataset.animIdle = 'true';
     persistGame(withStart, 'game');
     // Kick bot if first player is bot
@@ -216,14 +253,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!game) return;
     const next = reduce(game, action);
     const screen = next.phase === 'finished' ? 'results' : get().screen;
+    // botDelay 0 is the instant test path; holding there would only slow scripts down
+    const reveal = action.type === 'ROLL' && get().botDelayMs > 0 ? rollRevealFor(game, next) : null;
+    const revealName = reveal ? next.players.find((p) => p.seat === reveal.seat)?.name : null;
     set({
       game: next,
       screen,
-      announcement:
-        action.type === 'ROLL'
+      announcement: reveal
+        ? `${revealName ?? ''} rolled ${reveal.value}, ${reveal.reason === 'forfeit' ? 'three sixes' : 'no moves'}`
+        : action.type === 'ROLL'
           ? `${next.players.find((p) => p.seat === next.config.seats[next.currentSeatIndex])?.name ?? ''} rolled ${next.diceValue ?? ''}`
           : get().announcement,
     });
+    if (reveal) {
+      set({ rollReveal: reveal, animating: true });
+      document.body.dataset.animIdle = 'false';
+      window.clearTimeout(revealTimer);
+      revealTimer = window.setTimeout(() => {
+        set({ rollReveal: null, animating: false });
+        document.body.dataset.animIdle = 'true';
+        get().runBotTurn();
+      }, BEAT.noMove);
+    }
     persistGame(next, screen === 'results' ? 'results' : 'game');
     if (next.phase === 'finished') {
       localStorage.removeItem(STORAGE_KEY);
@@ -234,6 +285,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   roll: () => {
     const reduced =
       typeof document !== 'undefined' && document.documentElement.dataset.reducedMotion === 'true';
+    if (get().rollReveal) return;
     if (reduced || get().rolling) {
       if (!get().rolling) get().dispatch({ type: 'ROLL' });
       return;
@@ -242,6 +294,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     document.body.dataset.animIdle = 'false';
     window.setTimeout(() => {
       get().dispatch({ type: 'ROLL' });
+      // A reveal owns the idle flag until it clears
+      if (get().rollReveal) {
+        set({ rolling: false });
+        return;
+      }
       set({ rolling: false, animating: false });
       document.body.dataset.animIdle = 'true';
     }, 520);
@@ -267,6 +324,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveSettings(get());
   },
 
+  setPawnSkin: (pawnSkin) => {
+    set({ pawnSkin });
+    saveSettings(get());
+  },
+
   setAnimating: (animating) => {
     set({ animating });
     document.body.dataset.animIdle = animating ? 'false' : 'true';
@@ -275,7 +337,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAnnouncement: (announcement) => set({ announcement }),
 
   goSetup: () => {
-    set({ screen: 'setup', game: null });
+    window.clearTimeout(revealTimer);
+    set({ screen: 'setup', game: null, rollReveal: null, animating: false, rolling: false });
     localStorage.removeItem(STORAGE_KEY);
   },
 
@@ -306,8 +369,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   runBotTurn: () => {
-    const { game, botDelayMs, animating, rolling } = get();
-    if (!game || game.phase === 'finished' || animating || rolling) return;
+    const { game, botDelayMs, animating, rolling, rollReveal } = get();
+    if (!game || game.phase === 'finished' || animating || rolling || rollReveal) return;
     const seat = game.config.seats[game.currentSeatIndex]!;
     const player = game.players.find((p) => p.seat === seat)!;
     if (!player.isBot) return;
@@ -350,6 +413,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           get().dispatch({ type: 'ROLL' });
           // Face is visible now; hold before moving so the roll can be read
           set({ rolling: false });
+          if (get().rollReveal) return;
           window.setTimeout(() => {
             set({ animating: false });
             document.body.dataset.animIdle = 'true';

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { GameState, Move, SeatColor } from '../engine/types';
 import { getPawnCell, hopWaypoints, getYardSlotCell } from '../engine/selectors';
@@ -7,6 +7,9 @@ import { SEAT_RAMP, boardPalette } from '../theme/seats';
 import { SPRING } from '../ui/motion';
 import { useAppStore } from '../store/gameStore';
 import { buildWalkHop, buildEnterHop, buildReturnHop, holdThen, type Hop } from '../ui/hop';
+import { PawnDefs } from './pawns/PawnDefs';
+import { Token } from './pawns/Token';
+import { SKIN_BADGE_Y } from './pawns/skins';
 
 interface Props {
   game: GameState;
@@ -19,18 +22,44 @@ interface Props {
 
 /** Vertical gap between tokens sharing a cell — enough to read the one beneath. */
 const STACK_STEP = 0.24;
+/** Tighter gap for tall stacks, so the top token stays inside its own cell. */
+const STACK_STEP_TALL = 0.15;
+
+/** Horizontal slots for different seats sharing one (safe) cell. */
+const GROUP_OFFSETS: Record<number, number[]> = {
+  1: [0],
+  2: [-0.2, 0.2],
+  3: [-0.27, 0, 0.27],
+  4: [-0.3, -0.1, 0.1, 0.3],
+};
+
+/** Token radius shrink when seats share a cell side by side. */
+const SHARED_CELL_SCALE = 0.78;
 
 /** Progress value meaning a token has finished. */
 const HOME = 56;
 
+/** Radius of a docked token; small enough that a 2x2 cluster never overlaps. */
+const HOME_R = 0.3;
+
+interface StackSlot {
+  /** Position within this seat's pile on the cell. */
+  index: number;
+  count: number;
+  /** Horizontal nudge when several seats share the cell. */
+  dx: number;
+  shared: boolean;
+  step: number;
+}
+
 /**
  * Finished tokens dock inside their own hub wedge instead of piling on the exact
- * centre point. Each seat's wedge points at (7.5, 7.5) from one side.
+ * centre point. Each seat's wedge points at (7.5, 7.5) from one side; tokens sit
+ * as a 2x2 cluster, the first pair in the wider outer row.
  */
 function homeDock(seat: number, slot: number): { x: number; y: number } {
-  // Sit just inside the wedge, where it has darkened, so the token still reads
-  const depth = 0.78;
-  const spread = (slot - 1.5) * 0.28;
+  const depth = slot < 2 ? 1.16 : 0.7;
+  const spread = slot % 2 === 0 ? -0.3 : 0.3;
   switch (seat) {
     case 0:
       return { x: 7.5 - depth, y: 7.5 + spread };
@@ -43,6 +72,8 @@ function homeDock(seat: number, slot: number): { x: number; y: number } {
   }
 }
 
+const SOLO: StackSlot = { index: 0, count: 1, dx: 0, shared: false, step: STACK_STEP };
+
 type Burst = {
   key: string;
   x: number;
@@ -51,174 +82,6 @@ type Burst = {
   color: SeatColor;
   delay?: number;
 };
-
-/**
- * Arcade token: a dark obsidian puck with an emissive seat-coloured rim and a
- * lit core. Drawn at the origin — the parent group positions it.
- */
-function Token({
-  color,
-  r,
-  selected,
-  movable,
-  doomed,
-  collar,
-  gold,
-}: {
-  color: SeatColor;
-  r: number;
-  selected: boolean;
-  movable: boolean;
-  doomed: boolean;
-  collar: string;
-  gold: string;
-}) {
-  const ramp = SEAT_RAMP[color];
-  const halfW = 0.72 * r;
-  const ry = 0.28 * r;
-  const topY = -0.3 * r;
-  const botY = 0.26 * r;
-  const lit = selected || movable;
-  const edge = lit ? 0.9 : 0.6;
-
-  return (
-    <g style={{ pointerEvents: 'none' }}>
-      {/* Ground halo — only lit tokens spill light */}
-      {lit && (
-        <ellipse
-          cx={0}
-          cy={botY + ry * 0.5}
-          rx={halfW * 1.7}
-          ry={ry * 1.9}
-          fill={`url(#token-halo-${color})`}
-          opacity={selected ? 1 : 0.75}
-        />
-      )}
-
-      {/* Contact shadow */}
-      <ellipse
-        cx={0.03 * r}
-        cy={botY + ry * 0.7}
-        rx={halfW * 0.98}
-        ry={ry * 0.66}
-        fill="rgba(0,0,0,0.6)"
-        filter="url(#pawn-blur)"
-      />
-
-      {/* Base disc */}
-      <ellipse cx={0} cy={botY} rx={halfW} ry={ry} fill={ramp.deep} />
-      <ellipse
-        cx={0}
-        cy={botY}
-        rx={halfW}
-        ry={ry}
-        fill="none"
-        stroke={ramp.core}
-        strokeWidth={0.04}
-        opacity={edge}
-      />
-
-      {/* Body wall */}
-      <rect
-        x={-halfW}
-        y={topY}
-        width={halfW * 2}
-        height={botY - topY}
-        fill={`url(#token-side-${color})`}
-      />
-
-      {/* Silhouette edges keep the token legible against a dark board */}
-      <path
-        d={`M ${-halfW} ${topY} L ${-halfW} ${botY} M ${halfW} ${topY} L ${halfW} ${botY}`}
-        stroke={ramp.core}
-        strokeWidth={0.04}
-        opacity={edge}
-        fill="none"
-      />
-
-      {/* Emissive waistband */}
-      <rect
-        x={-halfW}
-        y={topY + (botY - topY) * 0.58}
-        width={halfW * 2}
-        height={0.075 * r}
-        fill={ramp.core}
-        opacity={lit ? 1 : 0.7}
-      />
-
-      {/* Lit cap */}
-      <ellipse
-        cx={0}
-        cy={topY}
-        rx={halfW}
-        ry={ry}
-        fill={`url(#token-top-${color})`}
-        stroke={ramp.rim}
-        strokeWidth={lit ? 0.05 : 0.035}
-        strokeOpacity={lit ? 0.9 : 0.6}
-      />
-      <ellipse cx={0} cy={topY} rx={halfW * 0.5} ry={ry * 0.5} fill={ramp.core} opacity={0.95} />
-      <ellipse
-        cx={-halfW * 0.12}
-        cy={topY - ry * 0.16}
-        rx={halfW * 0.24}
-        ry={ry * 0.24}
-        fill="#fff"
-        opacity={selected ? 1 : 0.78}
-      />
-
-      {/* Specular down the left wall */}
-      <path
-        d={`M ${-halfW * 0.82} ${topY + ry * 0.5} L ${-halfW * 0.82} ${botY - ry * 0.3}`}
-        stroke="rgba(255,255,255,0.4)"
-        strokeWidth={0.05}
-        strokeLinecap="round"
-        fill="none"
-      />
-
-      {/* Selection collar — ink on paper tiles, white on night tiles, plus a seat rim */}
-      {selected && (
-        <>
-          <ellipse
-            cx={0}
-            cy={botY}
-            rx={halfW * 1.34}
-            ry={ry * 1.34}
-            fill="none"
-            stroke={collar}
-            strokeWidth={0.07}
-            opacity={0.95}
-          />
-          <ellipse
-            cx={0}
-            cy={botY}
-            rx={halfW * 1.22}
-            ry={ry * 1.22}
-            fill="none"
-            stroke={ramp.rim}
-            strokeWidth={0.035}
-            opacity={0.9}
-          />
-        </>
-      )}
-
-      {/* Danger ring — this token dies if the highlighted move is taken */}
-      {doomed && (
-        <ellipse
-          cx={0}
-          cy={botY}
-          rx={halfW * 1.42}
-          ry={ry * 1.42}
-          fill="none"
-          stroke={gold}
-          strokeWidth={0.06}
-          strokeDasharray="0.14 0.1"
-          opacity={0.95}
-        />
-      )}
-    </g>
-  );
-}
 
 export function PawnLayer({
   game,
@@ -229,6 +92,7 @@ export function PawnLayer({
   previewPawnId,
 }: Props) {
   const theme = useAppStore((s) => s.theme);
+  const pawnSkin = useAppStore((s) => s.pawnSkin);
   const { surface, accent } = boardPalette(theme);
   const yardSlots = useMemo(() => {
     const map = new Map<string, number>();
@@ -241,23 +105,41 @@ export function PawnLayer({
 
   /**
    * Tokens sharing a cell stack upward with a count badge, rather than fanning
-   * out in a circle and bleeding into neighbouring cells.
+   * out in a circle and bleeding into neighbouring cells. Different seats on the
+   * same safe cell stand side by side, each with its own pile, so a count never
+   * reads as belonging to the wrong player.
    */
   const stacks = useMemo(() => {
-    const byCell = new Map<string, string[]>();
+    const byCell = new Map<string, Map<number, string[]>>();
     for (const player of game.players) {
       for (const pawn of player.pawns) {
+        if (pawn.progress === HOME) continue;
         const cell = getPawnCell(pawn.seat, pawn.progress, pawn.index, yardSlots.get(pawn.id));
         const key = `${cell.row.toFixed(2)},${cell.col.toFixed(2)}`;
-        const list = byCell.get(key) ?? [];
+        const bySeat = byCell.get(key) ?? new Map<number, string[]>();
+        const list = bySeat.get(pawn.seat) ?? [];
         list.push(pawn.id);
-        byCell.set(key, list);
+        bySeat.set(pawn.seat, list);
+        byCell.set(key, bySeat);
       }
     }
-    const map = new Map<string, { index: number; count: number }>();
-    for (const ids of byCell.values()) {
-      ids.sort();
-      ids.forEach((id, index) => map.set(id, { index, count: ids.length }));
+    const map = new Map<string, StackSlot>();
+    for (const bySeat of byCell.values()) {
+      const seats = [...bySeat.keys()].sort((a, b) => a - b);
+      const offsets = GROUP_OFFSETS[seats.length] ?? GROUP_OFFSETS[4]!;
+      seats.forEach((seat, g) => {
+        const ids = bySeat.get(seat)!.sort();
+        const step = ids.length > 2 ? STACK_STEP_TALL : STACK_STEP;
+        ids.forEach((id, index) =>
+          map.set(id, {
+            index,
+            count: ids.length,
+            dx: offsets[g] ?? 0,
+            shared: seats.length > 1,
+            step,
+          }),
+        );
+      });
     }
     return map;
   }, [game.players, yardSlots]);
@@ -426,13 +308,13 @@ export function PawnLayer({
             return {
               pawn,
               player,
-              stack: { index: 0, count: 1 },
+              stack: SOLO,
               home: true,
               x: dock.x,
               y: dock.y,
             };
           }
-          const stack = stacks.get(pawn.id) ?? { index: 0, count: 1 };
+          const stack = stacks.get(pawn.id) ?? SOLO;
           const prev = prevProgress.current.get(pawn.id);
           const cell =
             pawn.progress < 0 && prev !== undefined && prev >= 0 && !hops[pawn.id]
@@ -443,8 +325,8 @@ export function PawnLayer({
             player,
             stack,
             home: false,
-            x: cell.col + 0.5,
-            y: cell.row + 0.5 - stack.index * STACK_STEP,
+            x: cell.col + 0.5 + stack.dx,
+            y: cell.row + 0.5 - stack.index * stack.step,
           };
         }),
       ),
@@ -465,30 +347,7 @@ export function PawnLayer({
   return (
     <div className="pointer-events-none absolute inset-0" data-testid="pawn-layer">
       <svg viewBox="0 0 15 15" className="h-full w-full overflow-visible">
-        <defs>
-          <filter id="pawn-blur" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="0.05" />
-          </filter>
-          {(Object.keys(SEAT_RAMP) as SeatColor[]).map((c) => (
-            <Fragment key={c}>
-              <linearGradient id={`token-side-${c}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor={SEAT_RAMP[c].deep} />
-                <stop offset="45%" stopColor="#0a0f1a" />
-                <stop offset="100%" stopColor="#05080f" />
-              </linearGradient>
-              <radialGradient id={`token-top-${c}`} cx="38%" cy="32%" r="72%">
-                <stop offset="0%" stopColor={SEAT_RAMP[c].rim} />
-                <stop offset="55%" stopColor={SEAT_RAMP[c].core} />
-                <stop offset="100%" stopColor={SEAT_RAMP[c].deep} />
-              </radialGradient>
-              <radialGradient id={`token-halo-${c}`} cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor={SEAT_RAMP[c].glow} stopOpacity="0.55" />
-                <stop offset="60%" stopColor={SEAT_RAMP[c].glow} stopOpacity="0.16" />
-                <stop offset="100%" stopColor={SEAT_RAMP[c].glow} stopOpacity="0" />
-              </radialGradient>
-            </Fragment>
-          ))}
-        </defs>
+        <PawnDefs />
 
         {/* Destination markers */}
         {previews.map(({ move, cell, strong }) => (
@@ -523,7 +382,7 @@ export function PawnLayer({
           const selected = selectedId === pawn.id;
           const doomed = doomedIds.has(pawn.id);
           const hop = hops[pawn.id];
-          const r = home ? 0.34 : movable ? 0.56 : 0.5;
+          const r = (home ? HOME_R : movable ? 0.56 : 0.5) * (stack.shared ? SHARED_CELL_SCALE : 1);
           const isStackTop = stack.count > 1 && stack.index === stack.count - 1;
 
           const positionAnimate = hop ? { x: hop.x, y: hop.y } : { x, y };
@@ -563,6 +422,7 @@ export function PawnLayer({
                 style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
               >
                 <Token
+                  skin={pawnSkin}
                   color={player.color}
                   r={r}
                   selected={selected}
@@ -573,10 +433,17 @@ export function PawnLayer({
                 />
               </motion.g>
               {isStackTop && (
-                <g style={{ pointerEvents: 'none' }}>
+                <g
+                  style={{ pointerEvents: 'none' }}
+                  transform={
+                    stack.shared
+                      ? `scale(${SHARED_CELL_SCALE})`
+                      : undefined
+                  }
+                >
                   <circle
                     cx={0.32}
-                    cy={-0.3}
+                    cy={SKIN_BADGE_Y[pawnSkin]}
                     r={0.19}
                     fill="#05080f"
                     stroke={SEAT_RAMP[player.color].core}
@@ -584,7 +451,7 @@ export function PawnLayer({
                   />
                   <text
                     x={0.32}
-                    y={-0.235}
+                    y={SKIN_BADGE_Y[pawnSkin] + 0.065}
                     textAnchor="middle"
                     fontSize={0.26}
                     fontWeight={700}

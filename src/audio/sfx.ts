@@ -6,7 +6,16 @@
  * overlapping events (a capture during a hop) can never clip.
  */
 
-export type Sfx = 'roll' | 'move' | 'capture' | 'home' | 'tick' | 'extra' | 'forfeit' | 'win';
+export type Sfx =
+  | 'roll'
+  | 'move'
+  | 'capture'
+  | 'knockback'
+  | 'home'
+  | 'tick'
+  | 'extra'
+  | 'forfeit'
+  | 'win';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -226,6 +235,22 @@ const CUES: Record<Sfx, (ac: AudioContext) => void> = {
       env: { attack: 0.003, decay: 0.1, release: 0.14, peak: 0.24 },
     });
     haptic([0, 26, 40, 18]);
+  },
+
+  // The captured token flung back to its yard: a falling whoosh
+  knockback: (ac) => {
+    noise(ac, {
+      freq: 2600,
+      to: 320,
+      q: 1.6,
+      env: { attack: 0.02, decay: 0.34, release: 0.16, peak: 0.26 },
+    });
+    tone(ac, {
+      type: 'triangle',
+      freq: 700,
+      to: 160,
+      env: { attack: 0.01, decay: 0.4, release: 0.12, peak: 0.16 },
+    });
   },
 
   // Home: rising major arpeggio with a shimmer tail

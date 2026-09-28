@@ -86,6 +86,8 @@ interface Props {
   seatColor?: SeatColor;
   /** Copy shown under the die when the player cannot roll. */
   waitingLabel?: string;
+  /** Short outcome shown beside the value, e.g. when the roll has no move. */
+  note?: string;
 }
 
 export function Dice({
@@ -96,6 +98,7 @@ export function Dice({
   onRoll,
   seatColor = 'red',
   waitingLabel = 'Wait',
+  note,
 }: Props) {
   const reduced = useReducedMotion();
   const showValue = face ?? value ?? 1;
@@ -213,6 +216,7 @@ export function Dice({
         ) : value !== null ? (
           <>
             Rolled <strong className="dice-caption-value">{value}</strong>
+            {note && <span className="dice-caption-note"> · {note}</span>}
           </>
         ) : disabled ? (
           waitingLabel
