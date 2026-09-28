@@ -3,13 +3,14 @@ import { motion, useAnimationControls } from 'motion/react';
 import { useAppStore } from '../store/gameStore';
 import { BoardSvg } from './BoardSvg';
 import { PawnLayer } from './PawnLayer';
-import { GameTopBar, MoveLogSheet, SeatPod, TurnDice, WinnerBanner } from './HUD';
+import { GameTopBar, MoveLogSheet, SeatPod, SettingsSheet, TurnDice } from './HUD';
 import { playHopTicks, playSfx } from '../audio/sfx';
 import { useReducedMotion, BEAT, DUR, SPRING } from '../ui/motion';
 import { capturerApproachSeconds } from '../ui/hop';
 import { useEventStream, eventCaptures, eventReachedHome } from '../ui/useGameEvents';
 import { useWideLayout } from '../ui/useMediaQuery';
 import { EventFx } from '../ui/EventFx';
+import { FinishCelebration } from '../ui/FinishCelebration';
 
 /** Board quadrants, matching each seat's yard in engine/board. */
 const SEAT_CORNER: Record<number, 'tl' | 'tr' | 'br' | 'bl'> = {
@@ -26,6 +27,7 @@ export function GameScreen() {
   const game = useAppStore((s) => s.game);
   const roll = useAppStore((s) => s.roll);
   const rolling = useAppStore((s) => s.rolling);
+  const rollReveal = useAppStore((s) => s.rollReveal);
   const movePawn = useAppStore((s) => s.movePawn);
   const selectPawn = useAppStore((s) => s.selectPawn);
   const muted = useAppStore((s) => s.muted);
@@ -35,6 +37,7 @@ export function GameScreen() {
   const setAnnouncement = useAppStore((s) => s.setAnnouncement);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const autoMoveKey = useRef<string | null>(null);
   const boardControls = useAnimationControls();
 
@@ -61,17 +64,30 @@ export function GameScreen() {
       }
       if (event.type !== 'move') return;
 
+      const from = Number(event.detail?.from ?? -1);
+      const to = Number(event.detail?.to ?? -1);
+      const steps = from < 0 ? 1 : Math.max(1, to - from);
+
       if (eventCaptures(event).length > 0) {
-        const from = Number(event.detail?.from ?? -1);
-        const to = Number(event.detail?.to ?? -1);
         const delayMs = reducedMotion ? 0 : capturerApproachSeconds(from, to) * 1000;
         const extraTurn =
           i === events.length - 1 &&
           game &&
           game.phase === 'waiting_roll' &&
           game.config.seats[game.currentSeatIndex] === event.seat;
+        if (!muted) {
+          if (reducedMotion) playSfx('move');
+          else playHopTicks(steps, DUR.hop * 1000);
+        }
         window.setTimeout(() => {
-          if (!useAppStore.getState().muted) playSfx('capture');
+          if (!useAppStore.getState().muted) {
+            playSfx('capture');
+            if (!reducedMotion) {
+              window.setTimeout(() => {
+                if (!useAppStore.getState().muted) playSfx('knockback');
+              }, 80);
+            }
+          }
           if (!reducedMotion) {
             void boardControls.start({
               x: [0, -7, 6, -4, 2, 0],
@@ -79,7 +95,14 @@ export function GameScreen() {
               transition: { duration: 0.42, ease: 'easeOut' },
             });
           }
-          if (extraTurn && !useAppStore.getState().muted) playSfx('extra');
+          if (extraTurn) {
+            window.setTimeout(
+              () => {
+                if (!useAppStore.getState().muted) playSfx('extra');
+              },
+              reducedMotion ? 0 : BEAT.afterCapture,
+            );
+          }
         }, delayMs);
         return;
       }
@@ -92,9 +115,6 @@ export function GameScreen() {
           playSfx('move');
         } else {
           // One click per cell travelled, matched to the hop cadence
-          const from = Number(event.detail?.from ?? -1);
-          const to = Number(event.detail?.to ?? -1);
-          const steps = from < 0 ? 1 : Math.max(1, to - from);
           playHopTicks(steps, DUR.hop * 1000);
         }
       }
@@ -132,6 +152,8 @@ export function GameScreen() {
   }, [game]);
 
   const currentSeat = game ? game.config.seats[game.currentSeatIndex]! : null;
+  /** The die stays with whoever just rolled until a dead roll has been read. */
+  const dieSeat = rollReveal?.seat ?? currentSeat;
 
   /** Move a pawn only if it belongs to the current human player. */
   const playMove = useCallback(
@@ -204,6 +226,8 @@ export function GameScreen() {
   }, [game, rolling, reducedMotion, playMove]);
 
   const onRoll = useCallback(() => {
+    const { rollReveal, rolling } = useAppStore.getState();
+    if (rollReveal || rolling) return;
     if (!muted) playSfx('roll');
     roll();
   }, [roll, muted]);
@@ -211,6 +235,7 @@ export function GameScreen() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!game) return;
+      if ((e.target as HTMLElement | null)?.closest?.('.settings-sheet, .log-sheet')) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         if (game.phase === 'waiting_roll') onRoll();
@@ -247,7 +272,7 @@ export function GameScreen() {
         key={seat}
         player={player}
         game={game}
-        active={player.seat === currentSeat && game.phase !== 'finished'}
+        active={player.seat === dieSeat && game.phase !== 'finished'}
         compact={compact}
       />
     );
@@ -262,7 +287,7 @@ export function GameScreen() {
     const player = game.players.find((p) => p.seat === seat);
     if (!player) return null;
     const corner = SEAT_CORNER[seat]!;
-    const active = player.seat === currentSeat && game.phase !== 'finished';
+    const active = player.seat === dieSeat && game.phase !== 'finished';
 
     return (
       <div className={`corner-cell seat-${player.color}`} data-corner={corner}>
@@ -282,6 +307,7 @@ export function GameScreen() {
                 game={game}
                 onRoll={onRoll}
                 rolling={rolling}
+                reveal={rollReveal}
                 flipped={FAR_CORNERS.has(corner)}
               />
             </motion.div>
@@ -301,7 +327,7 @@ export function GameScreen() {
       <BoardSvg
         lockedSeats={lockedSeats}
         activeSeats={game.config.seats}
-        activeSeat={currentSeat}
+        activeSeat={dieSeat}
       />
       <PawnLayer
         game={game}
@@ -321,11 +347,17 @@ export function GameScreen() {
         muted={muted}
         onMuteToggle={() => setMuted(!muted)}
         onQuit={goSetup}
-        onToggleLog={() => setLogOpen((v) => !v)}
+        onToggleLog={() => {
+          setSettingsOpen(false);
+          setLogOpen((v) => !v);
+        }}
         logOpen={logOpen}
+        onToggleSettings={() => {
+          setLogOpen(false);
+          setSettingsOpen((v) => !v);
+        }}
+        settingsOpen={settingsOpen}
       />
-      <WinnerBanner game={game} />
-
       {wide ? (
         <div className="game-stage">
           <div className="pod-rail">
@@ -347,13 +379,15 @@ export function GameScreen() {
           <div className="pod-strip">{game.config.seats.map((seat) => podFor(seat, true))}</div>
           <div className="game-stage game-stage-narrow">{board}</div>
           <div className="action-bar">
-            <TurnDice game={game} onRoll={onRoll} rolling={rolling} />
+            <TurnDice game={game} onRoll={onRoll} rolling={rolling} reveal={rollReveal} />
           </div>
         </>
       )}
 
       <MoveLogSheet game={game} open={logOpen} onClose={() => setLogOpen(false)} />
+      <SettingsSheet game={game} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <EventFx game={game} />
+      <FinishCelebration game={game} />
     </div>
   );
 }

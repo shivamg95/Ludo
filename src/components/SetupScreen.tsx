@@ -7,6 +7,7 @@ import { SEAT_RAMP, ACCENT } from '../theme/seats';
 import { DUR, SPRING, useReducedMotion } from '../ui/motion';
 import { PlayIcon, RefreshIcon, SoundOffIcon, SoundOnIcon } from './icons';
 import { usePwaUpdate } from '../pwa';
+import { PawnSkinPicker } from './PawnSkinPicker';
 
 const MODES: { id: GameMode; title: string; blurb: string }[] = [
   { id: 'classic', title: 'Classic', blurb: 'Race all four home. Play on for places.' },
@@ -456,6 +457,11 @@ export function SetupScreen() {
               {disabledReason}
             </p>
           )}
+        </motion.section>
+
+        <motion.section className="setup-section appearance-panel panel" {...rise(0.16)}>
+          <h2 className="setup-heading">Pawn style</h2>
+          <PawnSkinPicker colors={seats.map((s) => SEATS[s]!.color)} />
         </motion.section>
       </div>
     </div>
