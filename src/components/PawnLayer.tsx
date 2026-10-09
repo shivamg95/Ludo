@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { GameState, Move, SeatColor } from '../engine/types';
 import { getPawnCell, hopWaypoints, getYardSlotCell } from '../engine/selectors';
@@ -9,7 +9,7 @@ import { useAppStore } from '../store/gameStore';
 import { buildWalkHop, buildEnterHop, buildReturnHop, holdThen, type Hop } from '../ui/hop';
 import { PawnDefs } from './pawns/PawnDefs';
 import { Token } from './pawns/Token';
-import { SKIN_BADGE_Y } from './pawns/skins';
+import { SKIN_BADGE_Y, SKIN_CENTER_Y, type PawnSkin } from './pawns/skins';
 
 interface Props {
   game: GameState;
@@ -41,6 +41,8 @@ const HOME = 56;
 
 /** Radius of a docked token; small enough that a 2x2 cluster never overlaps. */
 const HOME_R = 0.3;
+
+const EASE = 'easeInOut' as const;
 
 interface StackSlot {
   /** Position within this seat's pile on the cell. */
@@ -74,6 +76,14 @@ function homeDock(seat: number, slot: number): { x: number; y: number } {
 
 const SOLO: StackSlot = { index: 0, count: 1, dx: 0, shared: false, step: STACK_STEP };
 
+/**
+ * Transform that moves a one-cell wrapper so its centre sits on board point (x, y).
+ * Percentages refer to the wrapper's own size, so this holds at any board size.
+ */
+function atCell(x: number, y: number): string {
+  return `translate(${(x - 0.5) * 100}%, ${(y - 0.5) * 100}%)`;
+}
+
 type Burst = {
   key: string;
   x: number;
@@ -82,6 +92,131 @@ type Burst = {
   color: SeatColor;
   delay?: number;
 };
+
+interface SpriteProps {
+  skin: PawnSkin;
+  color: SeatColor;
+  x: number;
+  y: number;
+  r: number;
+  zIndex: number;
+  selected: boolean;
+  movable: boolean;
+  doomed: boolean;
+  shared: boolean;
+  /** Pile size shown on the top token of a stack; 0 hides the badge. */
+  badgeCount: number;
+  hop: Hop | undefined;
+  reducedMotion: boolean;
+  collar: string;
+  gold: string;
+}
+
+/**
+ * One token, as three nested layers so each concern animates on its own:
+ * the cell wrapper moves (transform, WAAPI-friendly), the inner wrapper squashes
+ * or lifts for selection, and a CSS pulse layer breathes while the token is movable.
+ */
+const PawnSprite = memo(function PawnSprite({
+  skin,
+  color,
+  x,
+  y,
+  r,
+  zIndex,
+  selected,
+  movable,
+  doomed,
+  shared,
+  badgeCount,
+  hop,
+  reducedMotion,
+  collar,
+  gold,
+}: SpriteProps) {
+  const ramp = SEAT_RAMP[color];
+  const origin = `50% ${50 + SKIN_CENTER_Y[skin] * r * 100}%`;
+  const pulsing = movable && !selected && !hop && !reducedMotion;
+
+  const position = hop ? hop.x.map((hx, i) => atCell(hx, hop.y[i]!)) : atCell(x, y);
+  const positionTransition = reducedMotion
+    ? { duration: 0 }
+    : hop
+      ? { duration: hop.duration, times: hop.times, ease: EASE }
+      : SPRING.token;
+
+  const squash = hop
+    ? { scaleY: hop.scaleY, scale: 1 }
+    : selected
+      ? { scale: 1.12, scaleY: 1 }
+      : { scale: 1, scaleY: 1 };
+  const squashTransition = reducedMotion
+    ? { duration: 0 }
+    : hop
+      ? { duration: hop.duration, times: hop.times, ease: EASE }
+      : SPRING.tight;
+
+  return (
+    <motion.div
+      className="pawn-cell pawn-token"
+      style={{ zIndex }}
+      initial={false}
+      animate={{ transform: position }}
+      transition={positionTransition}
+    >
+      <motion.div
+        className="pawn-fill"
+        style={{ transformOrigin: origin }}
+        initial={false}
+        animate={squash}
+        transition={squashTransition}
+      >
+        <div
+          className={pulsing ? 'pawn-fill pawn-pulse' : 'pawn-fill'}
+          style={{ transformOrigin: origin }}
+        >
+          <svg className="pawn-svg" viewBox="-0.5 -0.5 1 1" aria-hidden="true">
+            <Token
+              skin={skin}
+              color={color}
+              r={r}
+              selected={selected}
+              movable={movable}
+              doomed={doomed}
+              collar={collar}
+              gold={gold}
+            />
+          </svg>
+        </div>
+      </motion.div>
+      {badgeCount > 0 && (
+        <svg className="pawn-svg" viewBox="-0.5 -0.5 1 1" aria-hidden="true">
+          <g transform={shared ? `scale(${SHARED_CELL_SCALE})` : undefined}>
+            <circle
+              cx={0.32}
+              cy={SKIN_BADGE_Y[skin]}
+              r={0.19}
+              fill="#05080f"
+              stroke={ramp.core}
+              strokeWidth={0.035}
+            />
+            <text
+              x={0.32}
+              y={SKIN_BADGE_Y[skin] + 0.065}
+              textAnchor="middle"
+              fontSize={0.26}
+              fontWeight={700}
+              fill={ramp.rim}
+              fontFamily="var(--font-body)"
+            >
+              {badgeCount}
+            </text>
+          </g>
+        </svg>
+      )}
+    </motion.div>
+  );
+});
 
 export function PawnLayer({
   game,
@@ -299,6 +434,8 @@ export function PawnLayer({
     return new Set(relevant.flatMap((m) => m.captures));
   }, [game.phase, game.legalMoves, previewPawnId, selectedId]);
 
+  // Stable DOM order (players, then pawns). Painter's order comes from z-index, so a
+  // token never moves in the DOM mid-hop, and a DOM move would cancel its animation.
   const placed = useMemo(
     () =>
       game.players.flatMap((player) =>
@@ -333,8 +470,6 @@ export function PawnLayer({
     [game.players, stacks, yardSlots, homeSlots, hops],
   );
 
-  // Painter's order: higher on screen draws first so stacks occlude correctly
-  const drawOrder = useMemo(() => [...placed].sort((a, b) => a.y - b.y), [placed]);
   // Hit targets live in their own pass so a movable token is never blocked
   const hitOrder = useMemo(
     () =>
@@ -346,125 +481,70 @@ export function PawnLayer({
 
   return (
     <div className="pointer-events-none absolute inset-0" data-testid="pawn-layer">
-      <svg viewBox="0 0 15 15" className="h-full w-full overflow-visible">
-        <PawnDefs />
-
-        {/* Destination markers */}
-        {previews.map(({ move, cell, strong }) => (
-          <g key={`dest-${move.pawnId}`} data-testid={`dest-${move.pawnId}`}>
-            <motion.circle
-              cx={cell.col + 0.5}
-              cy={cell.row + 0.5}
-              r={strong ? 0.4 : 0.3}
-              fill="none"
-              stroke={accent.core}
-              strokeWidth={strong ? 0.09 : 0.055}
-              strokeDasharray={strong ? undefined : '0.13 0.11'}
-              opacity={strong ? 1 : 0.6}
-              initial={false}
-              animate={reducedMotion || !strong ? { scale: 1 } : { scale: [1, 1.12, 1] }}
-              transition={
-                reducedMotion || !strong
-                  ? { duration: 0 }
-                  : { duration: 1.3, repeat: Infinity, ease: 'easeInOut' }
-              }
-              style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-            />
-            {strong && (
-              <circle cx={cell.col + 0.5} cy={cell.row + 0.5} r={0.13} fill={accent.core} />
-            )}
-          </g>
-        ))}
-
-        {/* Tokens */}
-        {drawOrder.map(({ pawn, player, stack, home, x, y }) => {
-          const movable = movableIds.has(pawn.id);
-          const selected = selectedId === pawn.id;
-          const doomed = doomedIds.has(pawn.id);
-          const hop = hops[pawn.id];
-          const r = (home ? HOME_R : movable ? 0.56 : 0.5) * (stack.shared ? SHARED_CELL_SCALE : 1);
-          const isStackTop = stack.count > 1 && stack.index === stack.count - 1;
-
-          const positionAnimate = hop ? { x: hop.x, y: hop.y } : { x, y };
-          const positionTransition = reducedMotion
-            ? { duration: 0 }
-            : hop
-              ? { duration: hop.duration, times: hop.times, ease: 'easeInOut' as const }
-              : SPRING.token;
-
-          const scaleAnimate = hop
-            ? { scaleY: hop.scaleY, scale: 1 }
-            : selected
-              ? { scale: 1.12, scaleY: 1 }
-              : movable
-                ? { scale: [1, 1.07, 1], scaleY: 1 }
-                : { scale: 1, scaleY: 1 };
-
-          const scaleTransition = reducedMotion
-            ? { duration: 0 }
-            : hop
-              ? { duration: hop.duration, times: hop.times, ease: 'easeInOut' as const }
-              : movable && !selected
-                ? { scale: { duration: 1.2, repeat: Infinity, ease: 'easeInOut' as const } }
-                : SPRING.tight;
-
-          return (
-            <motion.g
-              key={pawn.id}
-              initial={false}
-              animate={positionAnimate}
-              transition={positionTransition}
+      {/* Destination markers */}
+      {previews.map(({ move, cell, strong }) => {
+        const pulse = strong && !reducedMotion;
+        return (
+          <div
+            key={`dest-${move.pawnId}`}
+            className="pawn-cell"
+            data-testid={`dest-${move.pawnId}`}
+            style={{ transform: atCell(cell.col + 0.5, cell.row + 0.5) }}
+          >
+            <svg
+              className={pulse ? 'pawn-svg pawn-dest-pulse' : 'pawn-svg'}
+              viewBox="-0.5 -0.5 1 1"
+              aria-hidden="true"
             >
-              <motion.g
-                initial={false}
-                animate={scaleAnimate}
-                transition={scaleTransition}
-                style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-              >
-                <Token
-                  skin={pawnSkin}
-                  color={player.color}
-                  r={r}
-                  selected={selected}
-                  movable={movable}
-                  doomed={doomed}
-                  collar={surface.collar}
-                  gold={accent.gold}
-                />
-              </motion.g>
-              {isStackTop && (
-                <g
-                  style={{ pointerEvents: 'none' }}
-                  transform={
-                    stack.shared
-                      ? `scale(${SHARED_CELL_SCALE})`
-                      : undefined
-                  }
-                >
-                  <circle
-                    cx={0.32}
-                    cy={SKIN_BADGE_Y[pawnSkin]}
-                    r={0.19}
-                    fill="#05080f"
-                    stroke={SEAT_RAMP[player.color].core}
-                    strokeWidth={0.035}
-                  />
-                  <text
-                    x={0.32}
-                    y={SKIN_BADGE_Y[pawnSkin] + 0.065}
-                    textAnchor="middle"
-                    fontSize={0.26}
-                    fontWeight={700}
-                    fill={SEAT_RAMP[player.color].rim}
-                    fontFamily="var(--font-body)"
-                  >
-                    {stack.count}
-                  </text>
-                </g>
-              )}
-            </motion.g>
-          );
-        })}
+              <circle
+                cx={0}
+                cy={0}
+                r={strong ? 0.4 : 0.3}
+                fill="none"
+                stroke={accent.core}
+                strokeWidth={strong ? 0.09 : 0.055}
+                strokeDasharray={strong ? undefined : '0.13 0.11'}
+                opacity={strong ? 1 : 0.6}
+              />
+            </svg>
+            {strong && (
+              <svg className="pawn-svg" viewBox="-0.5 -0.5 1 1" aria-hidden="true">
+                <circle cx={0} cy={0} r={0.13} fill={accent.core} />
+              </svg>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Tokens */}
+      {placed.map(({ pawn, player, stack, home, x, y }) => {
+        const movable = movableIds.has(pawn.id);
+        // Higher on screen (smaller y) draws first, so stacks occlude as before
+        const zIndex = 10 + Math.round((y + 2) * 100);
+        return (
+          <PawnSprite
+            key={pawn.id}
+            skin={pawnSkin}
+            color={player.color}
+            x={x}
+            y={y}
+            r={(home ? HOME_R : movable ? 0.56 : 0.5) * (stack.shared ? SHARED_CELL_SCALE : 1)}
+            zIndex={zIndex}
+            selected={selectedId === pawn.id}
+            movable={movable}
+            doomed={doomedIds.has(pawn.id)}
+            shared={stack.shared}
+            badgeCount={stack.count > 1 && stack.index === stack.count - 1 ? stack.count : 0}
+            hop={hops[pawn.id]}
+            reducedMotion={!!reducedMotion}
+            collar={surface.collar}
+            gold={accent.gold}
+          />
+        );
+      })}
+
+      <svg viewBox="0 0 15 15" className="pawn-svg pawn-overlay">
+        <PawnDefs />
 
         {/* Impact effects sit above tokens so a capture reads instantly */}
         {bursts.map((burst) => {
@@ -532,14 +612,16 @@ export function PawnLayer({
           );
         })}
 
-        {/* Hit targets — separate pass so movable tokens are always reachable */}
+        {/* Hit targets — separate pass so movable tokens are always reachable. Static: they
+            sit on the final cell and never animate, so they cost nothing per frame. */}
         {hitOrder.map(({ pawn, player, x, y }) => {
           const movable = movableIds.has(pawn.id);
-          const hop = hops[pawn.id];
           const rIdx = ringIndexOf(pawn.seat, pawn.progress);
           return (
-            <motion.circle
+            <circle
               key={`hit-${pawn.id}`}
+              cx={x}
+              cy={y}
               r={0.55}
               fill="transparent"
               className="pointer-events-auto cursor-pointer"
@@ -549,15 +631,6 @@ export function PawnLayer({
                 e.currentTarget.blur();
                 onSelect(pawn.id);
               }}
-              initial={false}
-              animate={hop ? { cx: hop.x, cy: hop.y } : { cx: x, cy: y }}
-              transition={
-                reducedMotion
-                  ? { duration: 0 }
-                  : hop
-                    ? { duration: hop.duration, times: hop.times, ease: 'easeInOut' }
-                    : SPRING.token
-              }
               data-testid={pawn.id}
               data-progress={pawn.progress}
               data-ring-index={rIdx !== null ? String(rIdx) : undefined}

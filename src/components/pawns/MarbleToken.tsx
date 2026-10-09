@@ -20,11 +20,10 @@ export function MarbleToken(props: TokenProps) {
       <ellipse
         cx={0.08 * r}
         cy={botY + ry * 0.35}
-        rx={halfW * 0.55}
-        ry={ry * 0.4}
-        fill={ramp.core}
+        rx={halfW * 0.55 + 0.1}
+        ry={ry * 0.4 + 0.1}
+        fill={`url(#${ids}marble-caustic-${color})`}
         opacity={lit ? 0.55 : 0.32}
-        filter={`url(#${ids}pawn-blur)`}
       />
 
       {/* Sphere */}

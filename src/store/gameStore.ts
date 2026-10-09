@@ -54,6 +54,8 @@ interface AppState {
   rolling: boolean;
   rollReveal: RollReveal | null;
   pawnSkin: PawnSkin;
+  /** Dev-style frame-rate meter in the corner. Off unless someone switches it on. */
+  showFps: boolean;
   announcement: string;
   resumed: boolean;
 
@@ -67,6 +69,7 @@ interface AppState {
   setTheme: (theme: 'dark' | 'light') => void;
   setBotDelay: (ms: number) => void;
   setPawnSkin: (skin: PawnSkin) => void;
+  setShowFps: (show: boolean) => void;
   setAnimating: (v: boolean) => void;
   setAnnouncement: (msg: string) => void;
   goSetup: () => void;
@@ -137,7 +140,9 @@ export function peekSavedGame(): SavedGameSummary | null {
   }
 }
 
-type PersistedSettings = Partial<Pick<AppState, 'muted' | 'theme' | 'botDelayMs' | 'pawnSkin'>> & {
+type PersistedSettings = Partial<
+  Pick<AppState, 'muted' | 'theme' | 'botDelayMs' | 'pawnSkin' | 'showFps'>
+> & {
   names?: Record<number, string>;
 };
 
@@ -170,17 +175,61 @@ function saveSettings(state: AppState) {
       theme: state.theme,
       botDelayMs: state.botDelayMs,
       pawnSkin: state.pawnSkin,
+      showFps: state.showFps,
       names: state.setup.names,
     }),
   );
 }
 
+function writeSave(game: GameState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, screen: 'game' }));
+}
+
+/**
+ * Autosave is deferred. Serialising the whole game on every dispatch stalls the
+ * frame where a hop starts, so only the newest game is written, at idle time.
+ * Pending writes flush on pagehide and when the tab hides, so a reload keeps the last move.
+ */
+let queuedSave: GameState | null = null;
+let queuedHandle: { id: number; idle: boolean } | null = null;
+
+function cancelQueuedSave() {
+  queuedSave = null;
+  if (!queuedHandle) return;
+  if (queuedHandle.idle) window.cancelIdleCallback(queuedHandle.id);
+  else window.clearTimeout(queuedHandle.id);
+  queuedHandle = null;
+}
+
+function flushQueuedSave() {
+  const game = queuedSave;
+  cancelQueuedSave();
+  if (game) writeSave(game);
+}
+
+function runQueuedSave() {
+  queuedHandle = null;
+  flushQueuedSave();
+}
+
+function queueSave(game: GameState) {
+  queuedSave = game;
+  // A run is already scheduled, and it will write this newer game when it fires
+  if (queuedHandle) return;
+  queuedHandle =
+    typeof window.requestIdleCallback === 'function'
+      ? { id: window.requestIdleCallback(runQueuedSave, { timeout: 500 }), idle: true }
+      : { id: window.setTimeout(runQueuedSave, 150), idle: false };
+}
+
 function persistGame(game: GameState | null, screen: Screen) {
   if (screen === 'game' && game && game.phase !== 'finished') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, screen }));
-  } else if (screen !== 'game') {
-    localStorage.removeItem(STORAGE_KEY);
+    queueSave(game);
+    return;
   }
+  // Finished or left the game: a late write must never bring a cleared save back
+  cancelQueuedSave();
+  if (screen !== 'game') localStorage.removeItem(STORAGE_KEY);
 }
 
 const settings = loadSettings();
@@ -205,6 +254,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   rolling: false,
   rollReveal: null,
   pawnSkin: settings.pawnSkin && PAWN_SKINS.includes(settings.pawnSkin) ? settings.pawnSkin : 'arcade',
+  showFps: settings.showFps === true,
   announcement: '',
   resumed: false,
 
@@ -243,7 +293,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     window.clearTimeout(revealTimer);
     document.body.dataset.animIdle = 'true';
-    persistGame(withStart, 'game');
+    // A new game is written now, so a reload right after starting always restores it
+    cancelQueuedSave();
+    writeSave(withStart);
     // Kick bot if first player is bot
     queueMicrotask(() => get().runBotTurn());
   },
@@ -329,6 +381,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveSettings(get());
   },
 
+  setShowFps: (showFps) => {
+    set({ showFps });
+    saveSettings(get());
+  },
+
   setAnimating: (animating) => {
     set({ animating });
     document.body.dataset.animIdle = animating ? 'false' : 'true';
@@ -339,6 +396,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   goSetup: () => {
     window.clearTimeout(revealTimer);
     set({ screen: 'setup', game: null, rollReveal: null, animating: false, rolling: false });
+    cancelQueuedSave();
     localStorage.removeItem(STORAGE_KEY);
   },
 
@@ -360,11 +418,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     return false;
   },
 
-  clearSave: () => localStorage.removeItem(STORAGE_KEY),
+  clearSave: () => {
+    cancelQueuedSave();
+    localStorage.removeItem(STORAGE_KEY);
+  },
 
   tickClock: (nowMs) => {
     const { game } = get();
-    if (!game || game.config.mode !== 'timed') return;
+    if (!game || game.config.mode !== 'timed' || game.phase === 'finished') return;
+    // The HUD shows whole seconds, so dispatch only when the shown second changes or the
+    // clock runs out. Until the start time is recorded, every call has to dispatch.
+    if (game.gameStartMs !== null && game.clockMsRemaining !== null) {
+      const remaining = Math.max(
+        0,
+        (game.config.durationMs ?? 60_000) - (nowMs - game.gameStartMs),
+      );
+      if (
+        remaining > 0 &&
+        Math.ceil(remaining / 1000) === Math.ceil(game.clockMsRemaining / 1000)
+      ) {
+        return;
+      }
+    }
     get().dispatch({ type: 'TICK', nowMs });
   },
 
@@ -432,6 +507,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }));
 
+if (typeof window !== 'undefined') {
+  // Save before the page goes away, so a reload right after a move restores it
+  window.addEventListener('pagehide', flushQueuedSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushQueuedSave();
+  });
+}
+
 export function installTestHook() {
   if (typeof window === 'undefined') return;
   const w = window as Window & { __ludo?: Record<string, unknown> };
@@ -449,10 +532,11 @@ export function installTestHook() {
       useAppStore.setState({ botDelayMs: ms });
     },
     advanceClock: (ms: number) => {
+      // Unthrottled on purpose: the test sets the exact clock value, not the next displayed second
       const g = useAppStore.getState().game;
-      if (!g) return;
+      if (!g || g.config.mode !== 'timed') return;
       const start = g.gameStartMs ?? 0;
-      useAppStore.getState().tickClock(start + ms);
+      useAppStore.getState().dispatch({ type: 'TICK', nowMs: start + ms });
     },
     store: useAppStore,
   };

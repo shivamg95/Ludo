@@ -199,6 +199,8 @@ export function SetupScreen() {
   const setTheme = useAppStore((s) => s.setTheme);
   const muted = useAppStore((s) => s.muted);
   const setMuted = useAppStore((s) => s.setMuted);
+  const showFps = useAppStore((s) => s.showFps);
+  const setShowFps = useAppStore((s) => s.setShowFps);
   const reduced = useReducedMotion();
   const { version, status, check } = usePwaUpdate();
 
@@ -269,6 +271,19 @@ export function SetupScreen() {
               data-testid="theme-toggle"
             >
               {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showFps}
+              className="fps-switch"
+              onClick={() => setShowFps(!showFps)}
+              data-testid="fps-toggle"
+            >
+              <span className="fps-switch-label">FPS</span>
+              <span className="fps-switch-track" aria-hidden>
+                <span className="fps-switch-thumb" />
+              </span>
             </button>
           </div>
         </motion.header>

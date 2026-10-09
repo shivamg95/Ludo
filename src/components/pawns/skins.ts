@@ -16,3 +16,15 @@ export const SKIN_BADGE_Y: Record<PawnSkin, number> = {
   marble: -0.38,
   gem: -0.36,
 };
+
+/**
+ * Centre of each skin's body (contact shadow included, glow excluded), in token
+ * radii below the token origin. Squash and pulse scale about this point, which
+ * matches the old SVG `fill-box` centre.
+ */
+export const SKIN_CENTER_Y: Record<PawnSkin, number> = {
+  arcade: 0.03,
+  classic: -0.15,
+  marble: -0.01,
+  gem: 0.04,
+};
