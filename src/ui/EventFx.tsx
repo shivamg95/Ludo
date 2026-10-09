@@ -178,7 +178,13 @@ export function EventFx({ game }: { game: GameState | null }) {
             >
               <motion.div
                 className="three-sixes-body"
-                animate={reduced ? { x: 0 } : { x: [0, -10, 8, -6, 3, 0] }}
+                animate={
+                  reduced
+                    ? { transform: 'translateX(0px)' }
+                    : {
+                        transform: [0, -10, 8, -6, 3, 0].map((x) => `translateX(${x}px)`),
+                      }
+                }
                 transition={
                   reduced ? { duration: 0 } : { duration: 0.48, delay: 0.08, ease: 'easeOut' }
                 }

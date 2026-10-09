@@ -2,6 +2,7 @@ import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { motion, useAnimationControls } from 'motion/react';
 import { useAppStore } from '../store/gameStore';
 import { BoardSvg } from './BoardSvg';
+import { BoardHubFx } from './BoardHubFx';
 import { PawnLayer } from './PawnLayer';
 import { GameTopBar, MoveLogSheet, SeatPod, SettingsSheet, TurnDice } from './HUD';
 import { playHopTicks, playSfx } from '../audio/sfx';
@@ -22,6 +23,14 @@ const SEAT_CORNER: Record<number, 'tl' | 'tr' | 'br' | 'bl'> = {
 
 /** Corners whose player sits across the board and reads the screen upside-down. */
 const FAR_CORNERS = new Set(['tl', 'tr']);
+
+/**
+ * Board shake as transform strings. Motion can hand these to the Web Animations
+ * API, so the shake keeps running even while React is busy.
+ */
+function shakeFrames(xs: number[], ys: number[]): string[] {
+  return xs.map((x, i) => `translate(${x}px, ${ys[i]}px)`);
+}
 
 export function GameScreen() {
   const game = useAppStore((s) => s.game);
@@ -55,8 +64,7 @@ export function GameScreen() {
         if (!muted) playSfx('forfeit');
         if (!reducedMotion) {
           void boardControls.start({
-            x: [0, -12, 10, -8, 5, -2, 0],
-            y: [0, 6, -5, 4, -2, 1, 0],
+            transform: shakeFrames([0, -12, 10, -8, 5, -2, 0], [0, 6, -5, 4, -2, 1, 0]),
             transition: { duration: 0.55, ease: 'easeOut' },
           });
         }
@@ -90,8 +98,7 @@ export function GameScreen() {
           }
           if (!reducedMotion) {
             void boardControls.start({
-              x: [0, -7, 6, -4, 2, 0],
-              y: [0, 4, -3, 2, -1, 0],
+              transform: shakeFrames([0, -7, 6, -4, 2, 0], [0, 4, -3, 2, -1, 0]),
               transition: { duration: 0.42, ease: 'easeOut' },
             });
           }
@@ -133,23 +140,33 @@ export function GameScreen() {
     if (finished && !useAppStore.getState().muted) playSfx('win');
   }, [finished]);
 
+  // Depends on the mode only: a new `game` object every turn would restart the interval
+  const isTimed = game?.config.mode === 'timed';
   useEffect(() => {
-    if (!game || game.config.mode !== 'timed') return;
+    if (!isTimed) return;
     const id = window.setInterval(() => {
       tickClock(performance.now());
     }, 200);
     return () => clearInterval(id);
-  }, [game?.config.mode, tickClock, game]);
+  }, [isTimed, tickClock]);
 
   const movableIds = useMemo(
     () => new Set(game?.legalMoves.map((m) => m.pawnId) ?? []),
     [game?.legalMoves],
   );
 
-  const lockedSeats = useMemo(() => {
-    if (!game || game.config.mode !== 'quick') return [];
-    return game.players.filter((p) => !p.hasCaptured).map((p) => p.seat);
+  // Keyed on the seat list, not on `game`, so BoardSvg keeps its memo across turns
+  const lockedKey = useMemo(() => {
+    if (!game || game.config.mode !== 'quick') return '';
+    return game.players
+      .filter((p) => !p.hasCaptured)
+      .map((p) => p.seat)
+      .join(',');
   }, [game]);
+  const lockedSeats = useMemo(
+    () => (lockedKey ? lockedKey.split(',').map(Number) : []),
+    [lockedKey],
+  );
 
   const currentSeat = game ? game.config.seats[game.currentSeatIndex]! : null;
   /** The die stays with whoever just rolled until a dead roll has been read. */
@@ -324,11 +341,8 @@ export function GameScreen() {
       data-testid="board-wrap"
       animate={boardControls}
     >
-      <BoardSvg
-        lockedSeats={lockedSeats}
-        activeSeats={game.config.seats}
-        activeSeat={dieSeat}
-      />
+      <BoardSvg lockedSeats={lockedSeats} activeSeats={game.config.seats} activeSeat={dieSeat} />
+      <BoardHubFx />
       <PawnLayer
         game={game}
         movableIds={movableIds}

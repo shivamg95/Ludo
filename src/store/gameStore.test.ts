@@ -98,3 +98,15 @@ describe('pawn skin setting', () => {
     useAppStore.getState().setPawnSkin('arcade');
   });
 });
+
+describe('fps setting', () => {
+  it('persists the FPS switch to ludo-settings-v1', () => {
+    useAppStore.getState().setShowFps(true);
+    const saved = JSON.parse(localStorage.getItem('ludo-settings-v1') ?? '{}');
+    expect(saved.showFps).toBe(true);
+    expect(useAppStore.getState().showFps).toBe(true);
+    useAppStore.getState().setShowFps(false);
+    const off = JSON.parse(localStorage.getItem('ludo-settings-v1') ?? '{}');
+    expect(off.showFps).toBe(false);
+  });
+});

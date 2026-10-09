@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { PawnSkin } from './skins';
 import type { TokenProps } from './frame';
 import { ArcadeToken } from './ArcadeToken';
@@ -12,7 +13,7 @@ const SKIN_COMPONENT = {
   gem: GemToken,
 } satisfies Record<PawnSkin, (props: TokenProps) => React.JSX.Element>;
 
-export function Token({ skin, ...props }: TokenProps & { skin: PawnSkin }) {
+export const Token = memo(function Token({ skin, ...props }: TokenProps & { skin: PawnSkin }) {
   const Skin = SKIN_COMPONENT[skin] ?? ArcadeToken;
   return <Skin {...props} />;
-}
+});

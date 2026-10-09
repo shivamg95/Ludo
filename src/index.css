@@ -162,14 +162,15 @@ body::after {
   mask-image: radial-gradient(120% 90% at 50% 0%, #000 0%, transparent 72%);
 }
 
-/* Film grain keeps flat gradients from banding */
+/* Film grain keeps flat gradients from banding. Sits under #root like body::after, so it
+   no longer composites over every animated layer. */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
   opacity: 0.035;
-  z-index: 50;
+  z-index: 0;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -388,13 +389,181 @@ circle[data-testid^='pawn-']:focus-visible,
   flex: 0 0 auto;
 }
 
-.board-wrap [data-testid='board-svg'] {
-  filter: drop-shadow(0 20px 44px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 44px rgba(0, 224, 255, 0.09));
+/*
+ * The board's shadow is a static box-shadow under an opaque, square plate. It
+ * used to be a drop-shadow filter on the SVG, which the browser re-ran whenever
+ * anything inside the board repainted.
+ */
+.board-wrap {
+  isolation: isolate;
+  will-change: transform;
 }
 
-[data-theme='light'] .board-wrap [data-testid='board-svg'] {
-  filter: drop-shadow(0 16px 28px rgba(15, 30, 60, 0.18))
-    drop-shadow(0 0 28px rgba(0, 122, 153, 0.08));
+.board-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 5.4%;
+  pointer-events: none;
+  box-shadow:
+    0 20px 44px rgba(0, 0, 0, 0.55),
+    0 0 44px rgba(0, 224, 255, 0.09);
+}
+
+[data-theme='light'] .board-wrap::before {
+  box-shadow:
+    0 16px 28px rgba(15, 30, 60, 0.18),
+    0 0 28px rgba(0, 122, 153, 0.08);
+}
+
+/* Hub fx overlay (BoardHubFx). Sits over the hub's 3.2-cell square. */
+.board-hub {
+  position: absolute;
+  left: 39.333%;
+  top: 39.333%;
+  width: 21.333%;
+  height: 21.333%;
+  pointer-events: none;
+}
+
+.board-hub svg,
+.board-hub-pulse {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Clips the sweep to the hub's rounded square (rx 0.42 of 3.2) */
+.board-hub-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 13.125%;
+}
+
+/* 0.9 of 3.2 wide; the keyframes slide it from 0.3 left of the hub to past its right edge */
+.board-hub-shine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 28.125%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(255, 255, 255, 0)
+  );
+  opacity: 0.28;
+  will-change: transform;
+  animation: board-hub-shine 5.8s ease-in-out infinite;
+}
+
+.board-hub-pulse {
+  will-change: opacity;
+  opacity: 0.9;
+  animation: board-jewel-pulse 2.8s ease-in-out infinite;
+}
+
+/* Sweep runs for 3.6s of a 5.8s cycle (3.6s + 2.2s repeat delay); it rests off the hub while paused */
+@keyframes board-hub-shine {
+  0% {
+    transform: translateX(-33.333%);
+  }
+  62.069% {
+    transform: translateX(355.556%);
+  }
+  100% {
+    transform: translateX(355.556%);
+  }
+}
+
+@keyframes board-jewel-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Game screen: these sit over moving content, so their backdrop blur was recomputed on
+   every frame. Setup and results keep theirs. Backgrounds keep their alphas. */
+.game-screen .seat-pod,
+.game-screen .icon-btn,
+.game-screen .btn,
+.game-screen .action-bar,
+.game-screen .panel,
+.game-screen .event-toast,
+.game-screen .finish-card,
+.game-screen .three-sixes-card {
+  backdrop-filter: none;
+}
+
+/* Pawn layer (PawnLayer). Each token sits in a cell-sized box that Motion moves with
+   transform, so hops can run as compositor animations; pulses are plain CSS keyframes. */
+.pawn-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Hit targets and bursts sit above every token */
+.pawn-overlay {
+  z-index: 3000;
+}
+
+.pawn-cell {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(100% / 15);
+  height: calc(100% / 15);
+  pointer-events: none;
+}
+
+.pawn-token {
+  will-change: transform;
+}
+
+.pawn-fill {
+  position: absolute;
+  inset: 0;
+}
+
+.pawn-pulse {
+  animation: pawn-pulse 1.2s ease-in-out infinite;
+}
+
+.pawn-dest-pulse {
+  animation: dest-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes pawn-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.07);
+  }
+}
+
+@keyframes dest-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
 }
 
 /* Wide: rails on both sides, board fills the remaining square */
@@ -490,6 +659,7 @@ circle[data-testid^='pawn-']:focus-visible,
 .corner-die {
   position: relative;
   z-index: 3;
+  will-change: transform;
 }
 
 /* Shorter wide screens: shrink the die rather than overflow the rail */
@@ -1348,6 +1518,7 @@ circle[data-testid^='pawn-']:focus-visible,
   perspective-origin: 50% 40%;
 }
 
+/* Base style is the resting (reduced-motion) state; the keyframes only touch opacity and transform */
 .dice-ready-ring {
   position: absolute;
   inset: 0.35rem;
@@ -1357,6 +1528,21 @@ circle[data-testid^='pawn-']:focus-visible,
     0 0 26px -6px var(--seat-glow),
     inset 0 0 22px -10px var(--seat-glow);
   pointer-events: none;
+  opacity: 0.5;
+  will-change: transform, opacity;
+  animation: dice-ready-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes dice-ready-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.06);
+  }
 }
 
 .dice-lift {
@@ -1408,6 +1594,7 @@ circle[data-testid^='pawn-']:focus-visible,
   pointer-events: none;
   filter: blur(3px);
   opacity: 0.7;
+  will-change: transform, opacity;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
@@ -1527,6 +1714,103 @@ circle[data-testid^='pawn-']:focus-visible,
   flex-shrink: 0;
 }
 
+/* FPS switch on setup: a labelled track-and-thumb, the same height as the icon buttons beside it */
+.fps-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 44px;
+  padding-inline: 0.75rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.fps-switch-track {
+  position: relative;
+  width: 2rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-sunken);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.fps-switch-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0.15rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-50%);
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease;
+}
+
+.fps-switch[aria-checked='true'] {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+.fps-switch[aria-checked='true'] .fps-switch-track {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.fps-switch[aria-checked='true'] .fps-switch-thumb {
+  transform: translate(0.9rem, -50%);
+  background: var(--accent);
+}
+
+/* FPS meter (FpsCounter): a small pill in the top-left corner, above everything, never clickable */
+.fps-counter {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+  left: calc(env(safe-area-inset-left, 0px) + 0.5rem);
+  z-index: 9999;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(3, 5, 10, 0.78);
+  color: #4ade80;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.fps-counter[data-level='ok'] {
+  color: #fbbf24;
+}
+
+.fps-counter[data-level='bad'] {
+  color: var(--danger);
+}
+
+.fps-counter-value {
+  min-width: 2ch;
+  text-align: right;
+}
+
+.fps-counter-unit {
+  font-size: 0.6rem;
+  opacity: 0.7;
+}
+
 .setup-section {
   display: flex;
   flex-direction: column;
@@ -1594,7 +1878,7 @@ circle[data-testid^='pawn-']:focus-visible,
   border-radius: var(--r-xl);
   border: 1px solid var(--line);
   background: var(--surface);
-  backdrop-filter: blur(16px);
+  backdrop-filter: none;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,

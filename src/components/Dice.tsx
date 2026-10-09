@@ -52,6 +52,19 @@ function tiltFor(value: number): number {
   return ((value * 37) % 11) - 5;
 }
 
+/**
+ * Cube orientation as one transform string. Motion can hand a `transform` string
+ * keyframe list to the Web Animations API, but not separate rotate values.
+ */
+function cubeTransform(x: number, y: number, z: number): string {
+  return `rotateX(${x}deg) rotateY(${y}deg) rotateZ(${z}deg)`;
+}
+
+/** Lift and squash of the die, as one transform string. */
+function liftTransform(y: number, scaleY: number): string {
+  return `translateY(${y}px) scaleY(${scaleY})`;
+}
+
 function FacePips({ value, color }: { value: number; color: string }) {
   const dots = FACE_DOTS[value]!;
   return (
@@ -67,7 +80,15 @@ function FacePips({ value, color }: { value: number; color: string }) {
   );
 }
 
-function DiceFace({ value, transform, color }: { value: number; transform: string; color: string }) {
+function DiceFace({
+  value,
+  transform,
+  color,
+}: {
+  value: number;
+  transform: string;
+  color: string;
+}) {
   return (
     <div className="dice-face-3d" style={{ transform }} aria-hidden>
       <FacePips value={value} color={color} />
@@ -108,19 +129,38 @@ export function Dice({
 
   const cubeAnimate = rolling
     ? {
-        rotateX: [settled.x - 720, settled.x - 360, settled.x],
-        rotateY: [settled.y + 900, settled.y + 420, settled.y],
-        rotateZ: [0, 18, tiltFor(showValue)],
+        transform: [
+          cubeTransform(settled.x - 720, settled.y + 900, 0),
+          cubeTransform(settled.x - 360, settled.y + 420, 18),
+          cubeTransform(settled.x, settled.y, tiltFor(showValue)),
+        ],
       }
-    : { rotateX: settled.x, rotateY: settled.y, rotateZ: tiltFor(showValue) };
+    : { transform: cubeTransform(settled.x, settled.y, tiltFor(showValue)) };
 
-  const liftAnimate = rolling ? { y: [0, -58, 0, -13, 0], scaleY: [1, 1.06, 0.86, 1.02, 1] } : { y: 0, scaleY: 1 };
+  const liftAnimate = rolling
+    ? {
+        transform: [
+          liftTransform(0, 1),
+          liftTransform(-58, 1.06),
+          liftTransform(0, 0.86),
+          liftTransform(-13, 1.02),
+          liftTransform(0, 1),
+        ],
+      }
+    : { transform: liftTransform(0, 1) };
 
   const shadowAnimate = rolling
-    ? { scaleX: [1, 0.55, 1.12, 0.82, 1], opacity: [0.7, 0.25, 0.85, 0.45, 0.7] }
-    : { scaleX: 1, opacity: 0.7 };
+    ? {
+        transform: ['scaleX(1)', 'scaleX(0.55)', 'scaleX(1.12)', 'scaleX(0.82)', 'scaleX(1)'],
+        opacity: [0.7, 0.25, 0.85, 0.45, 0.7],
+      }
+    : { transform: 'scaleX(1)', opacity: 0.7 };
 
-  const tossTiming = { duration: DUR.roll, times: [0, 0.35, 0.68, 0.85, 1], ease: 'easeInOut' as const };
+  const tossTiming = {
+    duration: DUR.roll,
+    times: [0, 0.35, 0.68, 0.85, 1],
+    ease: 'easeInOut' as const,
+  };
 
   return (
     <div className={`dice-hero seat-${seatColor}`} data-testid="dice-hero">
@@ -141,26 +181,21 @@ export function Dice({
       >
         <div className="dice-scene">
           {/* Affordance ring — only this dims when you cannot roll */}
-          {ready && (
-            <motion.span
-              className="dice-ready-ring"
-              aria-hidden
-              initial={false}
-              animate={reduced ? { opacity: 0.5, scale: 1 } : { opacity: [0.25, 0.7, 0.25], scale: [1, 1.06, 1] }}
-              transition={reduced ? { duration: 0 } : { duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-            />
-          )}
+          {/* Pulses in CSS (.dice-ready-ring): no per-frame JS, and reduced motion stops at its base style */}
+          {ready && <span className="dice-ready-ring" aria-hidden />}
 
           <motion.div
             className="dice-lift"
             initial={false}
-            animate={reduced ? { y: 0, scaleY: 1 } : liftAnimate}
+            animate={reduced ? { transform: liftTransform(0, 1) } : liftAnimate}
             transition={reduced ? { duration: 0 } : tossTiming}
           >
             <motion.div
               className="dice-cube"
               initial={false}
-              animate={reduced ? { rotateX: settled.x, rotateY: settled.y, rotateZ: 0 } : cubeAnimate}
+              animate={
+                reduced ? { transform: cubeTransform(settled.x, settled.y, 0) } : cubeAnimate
+              }
               transition={
                 reduced
                   ? { duration: 0 }
@@ -204,7 +239,7 @@ export function Dice({
             className="dice-floor-shadow"
             aria-hidden
             initial={false}
-            animate={reduced ? { scaleX: 1, opacity: 0.7 } : shadowAnimate}
+            animate={reduced ? { transform: 'scaleX(1)', opacity: 0.7 } : shadowAnimate}
             transition={reduced ? { duration: 0 } : tossTiming}
           />
         </div>

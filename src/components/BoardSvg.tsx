@@ -1,10 +1,10 @@
-import { Fragment, type ReactNode } from 'react';
-import { motion } from 'motion/react';
+import { Fragment, memo, type ReactNode } from 'react';
 import { RING, SEATS, SAFE_RING_INDICES, ringIndexOf } from '../engine/board';
 import { SEAT_RAMP, boardPalette } from '../theme/seats';
-import { useReducedMotion } from '../ui/motion';
 import { useAppStore } from '../store/gameStore';
 import type { SeatColor } from '../engine/types';
+
+const NO_SEATS: number[] = [];
 
 /** Ring cells a seat travels just before turning into its home column. */
 function approachIndices(seat: number): number[] {
@@ -116,8 +116,8 @@ function StartPad({ cx, cy, color }: { cx: number; cy: number; color: string }) 
   );
 }
 
-export function BoardSvg({
-  lockedSeats = [] as number[],
+function BoardSvgView({
+  lockedSeats = NO_SEATS,
   activeSeats,
   activeSeat,
 }: {
@@ -125,7 +125,6 @@ export function BoardSvg({
   activeSeats?: number[];
   activeSeat?: number | null;
 }) {
-  const reduced = useReducedMotion();
   const theme = useAppStore((s) => s.theme);
   const { surface, accent } = boardPalette(theme);
   const live = new Set(activeSeats ?? [0, 1, 2, 3]);
@@ -364,12 +363,6 @@ export function BoardSvg({
           <stop offset="100%" stopColor={surface.plateEnd} />
         </linearGradient>
 
-        <linearGradient id="hub-shine" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#fff" stopOpacity="0" />
-          <stop offset="50%" stopColor="#fff" stopOpacity="0.5" />
-          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
-        </linearGradient>
-
         {(Object.keys(SEAT_RAMP) as SeatColor[]).map((c) => (
           <Fragment key={c}>
             <linearGradient id={`yard-fill-${c}`} x1="0%" y1="0%" x2="55%" y2="100%">
@@ -516,44 +509,7 @@ export function BoardSvg({
             strokeWidth={0.045}
             opacity={0.4}
           />
-          <g clipPath="url(#hub-clip)">
-            <motion.rect
-              x={5.9}
-              y={5.9}
-              width={0.9}
-              height={3.2}
-              fill="url(#hub-shine)"
-              opacity={0.28}
-              initial={false}
-              animate={reduced ? { x: 5.9 } : { x: [5.6, 9.1] }}
-              transition={
-                reduced
-                  ? { duration: 0 }
-                  : { duration: 3.6, repeat: Infinity, repeatDelay: 2.2, ease: 'easeInOut' }
-              }
-            />
-          </g>
-          <g filter={bloom ? 'url(#hub-bloom)' : undefined}>
-            <circle
-              cx={7.5}
-              cy={7.5}
-              r={0.32}
-              fill={surface.jewel}
-              stroke={accent.core}
-              strokeWidth={0.05}
-            />
-            <motion.circle
-              cx={7.5}
-              cy={7.5}
-              r={0.17}
-              fill={accent.core}
-              initial={false}
-              animate={reduced ? { opacity: 0.9 } : { opacity: [0.5, 1, 0.5] }}
-              transition={
-                reduced ? { duration: 0 } : { duration: 2.8, repeat: Infinity, ease: 'easeInOut' }
-              }
-            />
-          </g>
+          {/* The hub shine and jewel are animated in BoardHubFx, outside this SVG */}
         </g>
 
         {/* Quick-mode home locks */}
@@ -604,3 +560,6 @@ export function BoardSvg({
     </svg>
   );
 }
+
+/** Memoised: the board only needs to repaint when its theme, seats or locks change. */
+export const BoardSvg = memo(BoardSvgView);

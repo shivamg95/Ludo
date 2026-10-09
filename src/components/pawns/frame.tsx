@@ -52,14 +52,13 @@ export function TokenFrame({
         />
       )}
 
-      {/* Contact shadow */}
+      {/* Contact shadow: a gradient ellipse, widened by the old blur's spread */}
       <ellipse
         cx={0.03 * r}
         cy={botY + ry * 0.7}
-        rx={halfW * 0.98}
-        ry={ry * 0.66}
-        fill="rgba(0,0,0,0.6)"
-        filter={`url(#${ids}pawn-blur)`}
+        rx={halfW * 0.98 + 0.1}
+        ry={ry * 0.66 + 0.1}
+        fill={`url(#${ids}pawn-shadow)`}
       />
 
       {children}

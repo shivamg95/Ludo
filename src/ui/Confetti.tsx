@@ -41,7 +41,10 @@ export function Confetti({
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Pieces are flat foil rectangles, so 1.5x is indistinguishable from 2x and costs far less fill
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    /** Board-space transform: CSS pixels, scaled to the backing store. */
+    const base = () => ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     let w = 0;
     let h = 0;
     const resize = () => {
@@ -49,7 +52,7 @@ export function Confetti({
       h = canvas.clientHeight;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      base();
     };
     resize();
     window.addEventListener('resize', resize);
@@ -101,28 +104,38 @@ export function Confetti({
       last = now;
       const age = now - start;
 
+      base();
       ctx.clearRect(0, 0, w, h);
-      for (const p of particles) {
+      // Compact in place: pieces that have fallen off screen are dropped without a new array
+      let alive = 0;
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i]!;
         p.vy += GRAVITY * dt;
         p.vx *= 1 - (1 - DRAG) * dt * 4;
         p.x += (p.vx + Math.sin(age / 420 + p.phase) * 34) * dt;
         p.y += p.vy * dt;
         p.rot += p.vrot * dt;
 
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        // Flip through zero width so pieces read as tumbling foil
-        ctx.scale(1, Math.cos(age / 260 + p.phase));
+        // One transform per piece: base scale, then translate, rotate and flip. The flip
+        // (scaleY through zero) makes pieces read as tumbling foil.
+        const c = Math.cos(p.rot);
+        const s = Math.sin(p.rot);
+        const flip = Math.cos(age / 260 + p.phase);
+        ctx.setTransform(dpr * c, dpr * s, -dpr * s * flip, dpr * c * flip, dpr * p.x, dpr * p.y);
         ctx.globalAlpha = age > LIFE_MS - 700 ? Math.max(0, (LIFE_MS - age) / 700) : 1;
         ctx.fillStyle = p.color;
         ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      }
 
-      particles = particles.filter((p) => p.y < h + 60);
-      if (age < LIFE_MS && particles.length) raf = requestAnimationFrame(frame);
-      else ctx.clearRect(0, 0, w, h);
+        if (p.y < h + 60) particles[alive++] = p;
+      }
+      particles.length = alive;
+
+      if (age < LIFE_MS && particles.length) {
+        raf = requestAnimationFrame(frame);
+      } else {
+        base();
+        ctx.clearRect(0, 0, w, h);
+      }
     };
 
     const launch = window.setTimeout(() => {
